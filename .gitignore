@@ -1,0 +1,9 @@
+# Binaries
+/tor-client
+*.exe
+
+# IDE
+.idea/
+
+# Debug logs
+tor-debug.log
