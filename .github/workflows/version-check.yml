@@ -1,0 +1,58 @@
+name: Version Check
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allows re-triggering from other workflows
+
+# Declare default permissions as read only for security
+permissions: read-all
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check version bump validity
+        run: |
+          git fetch origin main --depth=1
+
+          PR_VERSION=$(cat version | tr -d '\n')
+          MAIN_VERSION=$(git show origin/main:version | tr -d '\n')
+
+          # Check if PR modified the version file (compare against merge-base)
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          BASE_VERSION=$(git show "$MERGE_BASE:version" 2>/dev/null | tr -d '\n' || echo "")
+
+          # If PR didn't change version file, no conflict possible
+          if [ "$BASE_VERSION" = "$PR_VERSION" ]; then
+            echo "✓ Version unchanged ($PR_VERSION)"
+            exit 0
+          fi
+
+          # PR changed version - check if it's greater than main
+          PR_MAJOR=$(echo $PR_VERSION | cut -d. -f1)
+          PR_MINOR=$(echo $PR_VERSION | cut -d. -f2)
+          MAIN_MAJOR=$(echo $MAIN_VERSION | cut -d. -f1)
+          MAIN_MINOR=$(echo $MAIN_VERSION | cut -d. -f2)
+
+          if [ "$PR_MAJOR" -gt "$MAIN_MAJOR" ]; then
+            echo "✓ Version bump valid: $MAIN_VERSION → $PR_VERSION"
+            exit 0
+          elif [ "$PR_MAJOR" -eq "$MAIN_MAJOR" ] && [ "$PR_MINOR" -gt "$MAIN_MINOR" ]; then
+            echo "✓ Version bump valid: $MAIN_VERSION → $PR_VERSION"
+            exit 0
+          else
+            echo "❌ VERSION CONFLICT DETECTED"
+            echo ""
+            echo "Your PR sets version to $PR_VERSION"
+            echo "But main is already at version $MAIN_VERSION"
+            echo ""
+            echo "Someone else merged a version bump before you."
+            echo "Please rebase and update version to be greater than $MAIN_VERSION"
+            exit 1
+          fi

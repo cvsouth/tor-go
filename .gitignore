@@ -1,0 +1,43 @@
+# Binaries
+/tor-client
+*.exe
+*.test
+
+# Coverage
+*.out
+coverage*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug logs
+tor-debug.log
+
+# Release artifacts
+release/
+dist/
+*.tar.gz
+*.zip
+checksums.txt
+
+# Temp
+tmp/
+
+# Serena
+.serena
+
+# Scratch scripts
+fix.sh
+test.sh
+
+# Working files
+.playwright-mcp/
+plans/
+research/
