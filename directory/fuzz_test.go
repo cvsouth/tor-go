@@ -31,7 +31,7 @@ bandwidth-weights Wbd=0 Wbe=0 Wbg=4131 Wbm=10000
 
 	f.Fuzz(func(t *testing.T, text string) {
 		// Must not panic on any input.
-		ParseConsensus(text)
+		_, _ = ParseConsensus(text)
 	})
 }
 
@@ -49,6 +49,6 @@ func FuzzParseMicrodescriptor(f *testing.F) {
 	f.Add("ntor-onion-key !!!invalid!!!\nid ed25519 ???also-bad???\n")
 
 	f.Fuzz(func(t *testing.T, text string) {
-		ParseMicrodescriptor(text)
+		_, _, _, _ = ParseMicrodescriptor(text)
 	})
 }

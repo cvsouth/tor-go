@@ -55,6 +55,6 @@ func FuzzParseTorCert(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic on any input.
-		parseTorCert(data)
+		_, _ = parseTorCert(data)
 	})
 }

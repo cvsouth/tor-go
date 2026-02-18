@@ -21,6 +21,6 @@ func FuzzParseDescriptor(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, text string) {
 		// Must not panic on any input.
-		ParseDescriptor(text)
+		_, _ = ParseDescriptor(text)
 	})
 }

@@ -33,7 +33,7 @@ func FuzzParseLinkSpecifiers(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic on any input.
-		ParseLinkSpecifiers(data)
+		_, _ = ParseLinkSpecifiers(data)
 	})
 }
 
@@ -49,7 +49,7 @@ func FuzzDecodeOnion(f *testing.F) {
 	f.Add("")
 
 	f.Fuzz(func(t *testing.T, address string) {
-		DecodeOnion(address)
+		_, _ = DecodeOnion(address)
 	})
 }
 
@@ -93,6 +93,6 @@ func FuzzParseDescriptorOuter(f *testing.F) {
 	f.Add("descriptor-lifetime 999\nrevision-counter 42\n")
 
 	f.Fuzz(func(t *testing.T, text string) {
-		ParseDescriptorOuter(text)
+		_, _ = ParseDescriptorOuter(text)
 	})
 }
