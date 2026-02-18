@@ -73,7 +73,7 @@ func (c *Circuit) encryptRelayLocked(relayCmd uint8, streamID uint16, data []byt
 	// Per tor-spec §6.1: padding = 4 zero bytes + random bytes
 	padStart := relayDataOff + len(data)
 	if padStart+4 < RelayPayloadLen {
-		rand.Read(payload[padStart+4:])
+		_, _ = rand.Read(payload[padStart+4:])
 	}
 
 	// Compute digest: hash the payload with digest field zeroed, take first 4 bytes

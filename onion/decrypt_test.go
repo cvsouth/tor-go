@@ -37,7 +37,7 @@ func encryptDescriptorLayer(plaintext, secretData, subcredential []byte, revisio
 	keys := make([]byte, totalKeys)
 	shake := sha3.NewShake256()
 	shake.Write(kdfInput)
-	shake.Read(keys)
+	_, _ = shake.Read(keys)
 
 	secretKey := keys[:sKeyLen]
 	secretIV := keys[sKeyLen : sKeyLen+sIVLen]

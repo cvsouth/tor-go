@@ -78,7 +78,7 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 
 	tlsConn := tls.Client(tcpConn, tlsConfig)
 	// Set deadline for entire handshake phase
-	tlsConn.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = tlsConn.SetDeadline(time.Now().Add(30 * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
 		tcpConn.Close()
 		return nil, fmt.Errorf("tls handshake: %w", err)
@@ -172,7 +172,7 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	}
 
 	// Clear handshake deadline
-	tlsConn.SetDeadline(time.Time{})
+	_ = tlsConn.SetDeadline(time.Time{})
 	logger.Info("handshake complete")
 
 	return &Link{

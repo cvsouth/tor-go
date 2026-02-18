@@ -74,7 +74,7 @@ func HsNtorClientHandshake(B [32]byte, authKey []byte, subcredential [32]byte) (
 	keys := make([]byte, sKeyLen+macKeyLen)
 	shake := sha3.NewShake256()
 	shake.Write(kdfInput)
-	shake.Read(keys)
+	_, _ = shake.Read(keys)
 
 	var encKey, macKey [32]byte
 	copy(encKey[:], keys[:sKeyLen])
@@ -154,7 +154,7 @@ func HsNtorExpandKeys(ntorKeySeed []byte) (df, db [32]byte, kf, kb [32]byte) {
 	keys := make([]byte, totalLen)
 	shake := sha3.NewShake256()
 	shake.Write(kdfInput)
-	shake.Read(keys)
+	_, _ = shake.Read(keys)
 
 	copy(df[:], keys[0:32])
 	copy(db[:], keys[32:64])

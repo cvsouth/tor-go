@@ -20,7 +20,7 @@ func simulateServer(nodeID [20]byte, b [32]byte, B [32]byte, clientData [84]byte
 
 	// Generate server ephemeral keypair
 	var y [32]byte
-	rand.Read(y[:])
+	_, _ = rand.Read(y[:])
 	Y, _ := curve25519.X25519(y[:], curve25519.Basepoint)
 
 	// Compute shared secrets (server side)
@@ -65,13 +65,13 @@ func simulateServer(nodeID [20]byte, b [32]byte, B [32]byte, clientData [84]byte
 func TestNtorHandshakeRoundTrip(t *testing.T) {
 	// Generate relay's static keypair
 	var b [32]byte
-	rand.Read(b[:])
+	_, _ = rand.Read(b[:])
 	B, _ := curve25519.X25519(b[:], curve25519.Basepoint)
 	var Bkey [32]byte
 	copy(Bkey[:], B)
 
 	var nodeID [20]byte
-	rand.Read(nodeID[:])
+	_, _ = rand.Read(nodeID[:])
 
 	// Client side
 	hs, err := NewHandshake(nodeID, Bkey)
@@ -113,13 +113,13 @@ func TestNtorHandshakeRoundTrip(t *testing.T) {
 
 func TestNtorBadAuth(t *testing.T) {
 	var b [32]byte
-	rand.Read(b[:])
+	_, _ = rand.Read(b[:])
 	B, _ := curve25519.X25519(b[:], curve25519.Basepoint)
 	var Bkey [32]byte
 	copy(Bkey[:], B)
 
 	var nodeID [20]byte
-	rand.Read(nodeID[:])
+	_, _ = rand.Read(nodeID[:])
 
 	hs, _ := NewHandshake(nodeID, Bkey)
 	defer hs.Close()
@@ -188,12 +188,16 @@ func TestKeyDerivationConsistency(t *testing.T) {
 
 	kdf := hkdf.New(sha256.New, secretInput, []byte(tKey), []byte(mExpand))
 	keys := make([]byte, 92)
-	io.ReadFull(kdf, keys)
+	if _, err := io.ReadFull(kdf, keys); err != nil {
+		t.Fatal(err)
+	}
 
 	// Run it again - should produce identical output
 	kdf2 := hkdf.New(sha256.New, secretInput, []byte(tKey), []byte(mExpand))
 	keys2 := make([]byte, 92)
-	io.ReadFull(kdf2, keys2)
+	if _, err := io.ReadFull(kdf2, keys2); err != nil {
+		t.Fatal(err)
+	}
 
 	if !hmac.Equal(keys, keys2) {
 		t.Fatal("HKDF not deterministic")

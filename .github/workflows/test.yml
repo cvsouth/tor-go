@@ -33,7 +33,6 @@ jobs:
         key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
-        save-always: false
         fail-on-cache-miss: false
 
     - name: Download dependencies

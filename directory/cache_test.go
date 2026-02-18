@@ -188,8 +188,8 @@ func TestCacheCorruptedJSON(t *testing.T) {
 	cache := &Cache{Dir: dir}
 
 	// Write corrupted data
-	os.WriteFile(filepath.Join(dir, "consensus.json"), []byte("{invalid json"), 0600)
-	os.WriteFile(filepath.Join(dir, "microdescriptors.json"), []byte("{invalid json"), 0600)
+	_ = os.WriteFile(filepath.Join(dir, "consensus.json"), []byte("{invalid json"), 0600)
+	_ = os.WriteFile(filepath.Join(dir, "microdescriptors.json"), []byte("{invalid json"), 0600)
 
 	if _, ok := cache.LoadConsensus(); ok {
 		t.Fatal("should return false for corrupted consensus")

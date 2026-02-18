@@ -117,7 +117,7 @@ func buildCircuit(t *testing.T, consensus *directory.Consensus, logger *slog.Log
 		}
 
 		guardInfo := relayInfoFromConsensus(&path.Guard)
-		l.SetDeadline(time.Now().Add(30 * time.Second))
+		_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 		circ, err := circuit.Create(l, guardInfo, logger)
 		if err != nil {
 			l.Close()
@@ -137,7 +137,7 @@ func buildCircuit(t *testing.T, consensus *directory.Consensus, logger *slog.Log
 			continue
 		}
 
-		l.SetDeadline(time.Time{})
+		_ = l.SetDeadline(time.Time{})
 		t.Logf("  Circuit built (ID: 0x%08x)", circ.ID)
 		return circ, l
 	}
@@ -283,7 +283,7 @@ func TestE2ECircuitBuild(t *testing.T) {
 
 	circ, l := buildCircuit(t, consensus, logger, 3)
 	t.Cleanup(func() {
-		circ.Destroy()
+		_ = circ.Destroy()
 		l.Close()
 	})
 
@@ -345,7 +345,7 @@ func TestE2ECircuitRetry(t *testing.T) {
 			continue
 		}
 
-		l.SetDeadline(time.Now().Add(30 * time.Second))
+		_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 		circ, err := circuit.Create(l, relayInfoFromConsensus(&path.Guard), logger)
 		if err != nil {
 			l.Close()
@@ -365,9 +365,9 @@ func TestE2ECircuitRetry(t *testing.T) {
 			continue
 		}
 
-		l.SetDeadline(time.Time{})
+		_ = l.SetDeadline(time.Time{})
 		t.Logf("  Success (ID: 0x%08x)", circ.ID)
-		circ.Destroy()
+		_ = circ.Destroy()
 		l.Close()
 		successes++
 	}

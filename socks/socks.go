@@ -110,7 +110,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 
 	// Set initial deadline for handshake + connect (2 minutes)
-	conn.SetDeadline(time.Now().Add(2 * time.Minute))
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
 
 	// SOCKS5 version handshake
 	if err := s.doHandshake(conn); err != nil {
@@ -155,7 +155,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	sendReply(conn, 0x00)
 
 	// Clear deadline for data relay phase (streams have their own timeouts)
-	conn.SetDeadline(time.Time{})
+	_ = conn.SetDeadline(time.Time{})
 
 	// Relay data bidirectionally
 	var wg sync.WaitGroup
@@ -163,12 +163,12 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	go func() {
 		defer wg.Done()
-		io.Copy(torStream, conn)
+		_, _ = io.Copy(torStream, conn)
 	}()
 
 	go func() {
 		defer wg.Done()
-		io.Copy(conn, torStream)
+		_, _ = io.Copy(conn, torStream)
 	}()
 
 	wg.Wait()
@@ -200,7 +200,7 @@ func (s *Server) doHandshake(conn net.Conn) error {
 		}
 	}
 	if !found {
-		conn.Write([]byte{0x05, 0xFF}) // No acceptable method
+		_, _ = conn.Write([]byte{0x05, 0xFF}) // No acceptable method
 		return fmt.Errorf("client does not offer no-auth method")
 	}
 
@@ -275,17 +275,17 @@ func (s *Server) handleOnion(conn net.Conn, onionAddr string, port uint16) {
 	sendReply(conn, 0x00)
 
 	// Clear deadline for data relay phase
-	conn.SetDeadline(time.Time{})
+	_ = conn.SetDeadline(time.Time{})
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		io.Copy(rwc, conn)
+		_, _ = io.Copy(rwc, conn)
 	}()
 	go func() {
 		defer wg.Done()
-		io.Copy(conn, rwc)
+		_, _ = io.Copy(conn, rwc)
 	}()
 	wg.Wait()
 }
@@ -297,12 +297,12 @@ func splitHostPort(target string) (string, uint16) {
 	}
 	host := target[:idx]
 	var port uint16
-	fmt.Sscanf(target[idx+1:], "%d", &port)
+	_, _ = fmt.Sscanf(target[idx+1:], "%d", &port)
 	return host, port
 }
 
 func sendReply(conn net.Conn, rep byte) {
 	// VER(1) REP(1) RSV(1) ATYP(1) BND.ADDR(4) BND.PORT(2)
 	reply := []byte{0x05, rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0}
-	conn.Write(reply)
+	_, _ = conn.Write(reply)
 }

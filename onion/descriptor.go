@@ -167,9 +167,7 @@ func decodeChunked(data string) string {
 		result.WriteString(remaining[:size])
 		remaining = remaining[size:]
 		// Skip trailing \r\n after chunk data
-		if strings.HasPrefix(remaining, "\r\n") {
-			remaining = remaining[2:]
-		}
+		remaining = strings.TrimPrefix(remaining, "\r\n")
 	}
 	return result.String()
 }
@@ -211,7 +209,7 @@ func ParseDescriptorOuter(text string) (*DescriptorOuter, error) {
 
 		case strings.Contains(line, "-----END MESSAGE-----"):
 			if inSuperencrypted {
-				before := strings.TrimSpace(strings.Split(line, "-----END MESSAGE-----")[0])
+				before := strings.TrimSpace(strings.TrimSuffix(line, "-----END MESSAGE-----"))
 				if before != "" {
 					superencryptedLines = append(superencryptedLines, before)
 				}

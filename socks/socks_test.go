@@ -24,7 +24,7 @@ func TestDoHandshakeValid(t *testing.T) {
 	}()
 
 	// Send valid SOCKS5 handshake: version 5, 1 method, no-auth
-	client.Write([]byte{0x05, 0x01, 0x00})
+	_, _ = client.Write([]byte{0x05, 0x01, 0x00})
 
 	// Read server response
 	buf := make([]byte, 2)
@@ -53,11 +53,11 @@ func TestDoHandshakeNoAuthNotOffered(t *testing.T) {
 	}()
 
 	// Send SOCKS5 handshake with only username/password auth (0x02)
-	client.Write([]byte{0x05, 0x01, 0x02})
+	_, _ = client.Write([]byte{0x05, 0x01, 0x02})
 
 	// Server should send 0xFF rejection
 	buf := make([]byte, 2)
-	io.ReadFull(client, buf)
+	_, _ = io.ReadFull(client, buf)
 	if buf[1] != 0xFF {
 		t.Fatalf("expected 0xFF rejection, got %x", buf[1])
 	}
@@ -82,7 +82,7 @@ func TestDoHandshakeWrongVersion(t *testing.T) {
 
 	// Write in goroutine since server may close before reading all bytes
 	go func() {
-		client.Write([]byte{0x04, 0x01, 0x00}) // SOCKS4
+		_, _ = client.Write([]byte{0x04, 0x01, 0x00}) // SOCKS4
 	}()
 
 	if err := <-errCh; err == nil {
@@ -111,7 +111,7 @@ func TestReadConnectDomain(t *testing.T) {
 	msg := []byte{0x05, 0x01, 0x00, 0x03, byte(len(domain))}
 	msg = append(msg, domain...)
 	msg = append(msg, 0x00, 0x50) // port 80
-	client.Write(msg)
+	_, _ = client.Write(msg)
 
 	r := <-ch
 	if r.err != nil {
@@ -140,7 +140,7 @@ func TestReadConnectIPv4(t *testing.T) {
 	}()
 
 	msg := []byte{0x05, 0x01, 0x00, 0x01, 1, 2, 3, 4, 0x01, 0xBB}
-	client.Write(msg)
+	_, _ = client.Write(msg)
 
 	r := <-ch
 	if r.err != nil {
@@ -171,12 +171,12 @@ func TestReadConnectIPv6Rejected(t *testing.T) {
 	go func() {
 		msg := []byte{0x05, 0x01, 0x00, 0x04}
 		msg = append(msg, make([]byte, 18)...) // 16 addr + 2 port
-		client.Write(msg)
+		_, _ = client.Write(msg)
 	}()
 
 	// Read reply (server sends it before returning error)
 	buf := make([]byte, 10)
-	io.ReadFull(client, buf)
+	_, _ = io.ReadFull(client, buf)
 	if buf[1] != 0x08 {
 		t.Fatalf("expected reply 0x08, got %x", buf[1])
 	}
@@ -207,11 +207,11 @@ func TestReadConnectUnsupportedCommand(t *testing.T) {
 	go func() {
 		// BIND command (0x02)
 		msg := []byte{0x05, 0x02, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50}
-		client.Write(msg)
+		_, _ = client.Write(msg)
 	}()
 
 	buf := make([]byte, 10)
-	io.ReadFull(client, buf)
+	_, _ = io.ReadFull(client, buf)
 	if buf[1] != 0x07 {
 		t.Fatalf("expected reply 0x07, got %x", buf[1])
 	}
@@ -292,20 +292,20 @@ func TestHandleConnFullFlow(t *testing.T) {
 	}()
 
 	// Send handshake
-	client.Write([]byte{0x05, 0x01, 0x00})
+	_, _ = client.Write([]byte{0x05, 0x01, 0x00})
 	buf := make([]byte, 2)
-	io.ReadFull(client, buf)
+	_, _ = io.ReadFull(client, buf)
 
 	// Send CONNECT to example.com:80
 	domain := []byte("example.com")
 	msg := []byte{0x05, 0x01, 0x00, 0x03, byte(len(domain))}
 	msg = append(msg, domain...)
 	msg = append(msg, 0x00, 0x50)
-	client.Write(msg)
+	_, _ = client.Write(msg)
 
 	// Read error reply (0x01 = general failure)
 	reply := make([]byte, 10)
-	io.ReadFull(client, reply)
+	_, _ = io.ReadFull(client, reply)
 	if reply[1] != 0x01 {
 		t.Fatalf("expected reply 0x01 (general failure), got 0x%02x", reply[1])
 	}
@@ -354,27 +354,27 @@ func TestHandleOnionRouting(t *testing.T) {
 	}()
 
 	// Handshake
-	client.Write([]byte{0x05, 0x01, 0x00})
+	_, _ = client.Write([]byte{0x05, 0x01, 0x00})
 	buf := make([]byte, 2)
-	io.ReadFull(client, buf)
+	_, _ = io.ReadFull(client, buf)
 
 	// CONNECT to test.onion:80
 	domain := []byte("test.onion")
 	msg := []byte{0x05, 0x01, 0x00, 0x03, byte(len(domain))}
 	msg = append(msg, domain...)
 	msg = append(msg, 0x00, 0x50)
-	client.Write(msg)
+	_, _ = client.Write(msg)
 
 	// Read success reply
 	reply := make([]byte, 10)
-	io.ReadFull(client, reply)
+	_, _ = io.ReadFull(client, reply)
 	if reply[1] != 0x00 {
 		t.Fatalf("expected success reply, got 0x%02x", reply[1])
 	}
 
 	// Send data through onion connection
 	go func() {
-		onionClient.Write([]byte("hello from onion"))
+		_, _ = onionClient.Write([]byte("hello from onion"))
 		onionClient.Close()
 	}()
 
@@ -408,7 +408,7 @@ func TestReadConnectEmptyDomain(t *testing.T) {
 	go func() {
 		// Domain with length 0
 		msg := []byte{0x05, 0x01, 0x00, 0x03, 0x00, 0x00, 0x50}
-		client.Write(msg)
+		_, _ = client.Write(msg)
 	}()
 
 	r := <-ch

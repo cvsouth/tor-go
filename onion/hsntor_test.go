@@ -69,7 +69,7 @@ func TestHsNtorSpecTestVectors(t *testing.T) {
 	keys := make([]byte, sKeyLen+macKeyLen)
 	shake := sha3.NewShake256()
 	shake.Write(kdfInput)
-	shake.Read(keys)
+	_, _ = shake.Read(keys)
 
 	encKey := keys[:sKeyLen]
 	macKey := keys[sKeyLen:]

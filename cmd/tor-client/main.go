@@ -201,7 +201,7 @@ func tryBuildInitialCircuit(consensus *directory.Consensus, logger *slog.Logger)
 		return nil, nil, fmt.Errorf("guard connection: %w", err)
 	}
 
-	l.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 	circ, err := circuit.Create(l, relayInfoFromConsensus(&path.Guard), logger)
 	if err != nil {
 		l.Close()
@@ -218,7 +218,7 @@ func tryBuildInitialCircuit(consensus *directory.Consensus, logger *slog.Logger)
 		return nil, nil, fmt.Errorf("extend to exit: %w", err)
 	}
 
-	l.SetDeadline(time.Time{})
+	_ = l.SetDeadline(time.Time{})
 	return circ, l, nil
 }
 
@@ -260,7 +260,7 @@ func runSOCKSProxy(consensus *directory.Consensus, circ *circuit.Circuit, circLi
 		fmt.Println("\nShutting down...")
 		srv.Close()
 		mu.Lock()
-		circ.Destroy()
+		_ = circ.Destroy()
 		circ = nil
 		mu.Unlock()
 		circLink.Close()
@@ -340,7 +340,7 @@ func (cb *circuitBuilder) tryBuildCircuit(target *descriptor.RelayInfo) (*onion.
 	}
 
 	guardInfo := relayInfoFromConsensus(guard)
-	l.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 	c, err := circuit.Create(l, guardInfo, cb.logger)
 	if err != nil {
 		l.Close()
@@ -366,7 +366,7 @@ func (cb *circuitBuilder) tryBuildCircuit(target *descriptor.RelayInfo) (*onion.
 		return nil, fmt.Errorf("extend to last hop: %w", err)
 	}
 
-	l.SetDeadline(time.Time{})
+	_ = l.SetDeadline(time.Time{})
 	cb.logger.Info("onion circuit built", "circID", fmt.Sprintf("0x%08x", c.ID))
 
 	return &onion.BuiltCircuit{
