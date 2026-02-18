@@ -22,11 +22,14 @@ import (
 	"github.com/cvsouth/tor-go/socks"
 )
 
+// Version is set at build time via ldflags.
+var Version = "dev"
+
 func main() {
 	logger, logFile := setupLogging()
 	defer logFile.Close()
 
-	fmt.Println("=== Daphne Tor Client ===")
+	fmt.Printf("=== Daphne Tor Client %s ===\n", Version)
 	fmt.Println()
 
 	cache := &directory.Cache{Dir: directory.DefaultCacheDir()}

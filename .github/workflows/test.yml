@@ -1,17 +1,79 @@
-name: Test
+name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
+
+# Declare default permissions as read only
+permissions: read-all
 
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-      - run: go test ./...
+    - name: Checkout code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        persist-credentials: false
+
+    - name: Set up Go
+      uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Cache Go modules
+      uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+        save-always: false
+        fail-on-cache-miss: false
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Check LICENSE file exists
+      run: |
+        if [ ! -f LICENSE ] && [ ! -f COPYING ] && [ ! -f COPYRIGHT ]; then
+          echo "No LICENSE file found"
+          exit 1
+        fi
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+      with:
+        version: latest
+
+    - name: Install govulncheck
+      run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+
+    - name: Run govulncheck
+      run: govulncheck ./...
+
+    - name: Run tests with coverage
+      run: go test -coverprofile=coverage.out -covermode=atomic ./...
+
+    - name: Check coverage
+      run: |
+        # Filter out cmd/ from coverage
+        grep -v 'cmd/' coverage.out > coverage_filtered.out
+
+        # Calculate and display coverage
+        COVERAGE=$(go tool cover -func=coverage_filtered.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "Total coverage: ${COVERAGE}%"
+
+        # Enforce minimum 50% coverage
+        if [ "$(echo "$COVERAGE < 50" | bc)" -eq 1 ]; then
+          echo ""
+          echo "FAIL: Coverage is ${COVERAGE}%, required minimum 50%"
+          exit 1
+        fi
+        echo ""
+        echo "SUCCESS: Coverage is ${COVERAGE}% (minimum 50%)"

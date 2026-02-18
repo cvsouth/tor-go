@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# Declare default permissions as read only for security
+permissions: read-all
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # Required to create releases
+      id-token: write       # Required for Sigstore OIDC keyless signing
+      actions: read         # Required to check workflow status
+      attestations: write   # Required for SLSA provenance
+
+    steps:
+      - name: Wait for Test workflow to complete
+        uses: lewagon/wait-on-check-action@3603e826ee561ea102b58accb5ea55a1a7482343 # v1.4.1
+        with:
+          ref: ${{ github.sha }}
+          check-name: 'Test'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+
+      - name: Wait for CodeQL to complete successfully
+        uses: lewagon/wait-on-check-action@3603e826ee561ea102b58accb5ea55a1a7482343 # v1.4.1
+        with:
+          ref: ${{ github.sha }}
+          check-name: 'Security Scan (go)'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+      - name: Get next version number
+        id: version
+        run: |
+          # Read major.minor version from version file and normalize
+          base_version=$(cat version | tr -d '\000-\037\177-\377' | tr -d '\n\r\t ' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          echo "Base version from file: '$base_version'"
+          echo "Base version length: ${#base_version}"
+
+          # Validate that base_version is not empty
+          if [ -z "$base_version" ]; then
+            echo "Error: version file is empty or not found"
+            exit 1
+          fi
+
+          # Validate version format (should be like "0.1", "1.0", etc.)
+          if ! echo "$base_version" | grep -E '^[0-9]+\.[0-9]+$' > /dev/null; then
+            echo "Error: version file must contain format like '0.1' or '1.0', got: '$base_version'"
+            exit 1
+          fi
+
+          # Get the latest release tag that matches this base version
+          latest_tag=$(git tag -l --sort=-version:refname "v${base_version}.*" | head -n 1)
+          echo "Latest matching tag: '$latest_tag'"
+
+          if [ -z "$latest_tag" ]; then
+            # No tags exist for this base version, start with patch version 0
+            next_patch=0
+            echo "No existing tags found for base version $base_version, starting with patch 0"
+          else
+            # Extract patch version from tag (e.g., v0.1.5 -> 5)
+            current_patch=$(echo "$latest_tag" | sed "s/v${base_version}\\.//")
+            next_patch=$((current_patch + 1))
+            echo "Found existing tag $latest_tag, incrementing patch from $current_patch to $next_patch"
+          fi
+
+          next_version="v${base_version}.${next_patch}"
+
+          echo "next_version=$next_version" >> $GITHUB_OUTPUT
+          echo "tag_name=$next_version" >> $GITHUB_OUTPUT
+          echo "Next version will be: $next_version"
+
+      - name: Build binaries
+        run: |
+          # Create release directory
+          mkdir -p release
+
+          # Build for different platforms
+          platforms=(
+            "linux/amd64"
+            "linux/arm64"
+            "windows/amd64"
+            "darwin/amd64"
+            "darwin/arm64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            IFS='/' read -r GOOS GOARCH <<< "$platform"
+
+            # Set binary name with platform suffix
+            if [ "$GOOS" = "windows" ]; then
+              binary_name="tor-client-${GOOS}-${GOARCH}.exe"
+            else
+              binary_name="tor-client-${GOOS}-${GOARCH}"
+            fi
+
+            # Build the binary with version injection
+            echo "Building for $GOOS/$GOARCH..."
+            env CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
+              -ldflags="-s -w -X main.Version=${{ steps.version.outputs.next_version }}" \
+              -o "release/${binary_name}" \
+              ./cmd/tor-client
+          done
+
+          # Generate checksums
+          cd release
+          sha256sum * > checksums.txt
+          cd ..
+
+      - name: Sign checksums with Cosign
+        run: |
+          cosign sign-blob release/checksums.txt \
+            --yes \
+            --bundle release/checksums.txt.bundle
+
+      - name: Sign binaries with Cosign
+        run: |
+          for binary in release/tor-client-*; do
+            cosign sign-blob "$binary" \
+              --yes \
+              --bundle "${binary}.bundle"
+          done
+
+      - name: Generate SLSA provenance attestations
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v2.1.0
+        with:
+          subject-path: 'release/tor-client-*'
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create release with GitHub CLI and auto-generated release notes
+          gh release create ${{ steps.version.outputs.tag_name }} \
+            --title "${{ steps.version.outputs.next_version }}" \
+            --generate-notes \
+            ./release/tor-client-linux-amd64 \
+            ./release/tor-client-linux-amd64.bundle \
+            ./release/tor-client-linux-arm64 \
+            ./release/tor-client-linux-arm64.bundle \
+            ./release/tor-client-windows-amd64.exe \
+            ./release/tor-client-windows-amd64.exe.bundle \
+            ./release/tor-client-darwin-amd64 \
+            ./release/tor-client-darwin-amd64.bundle \
+            ./release/tor-client-darwin-arm64 \
+            ./release/tor-client-darwin-arm64.bundle \
+            ./release/checksums.txt \
+            ./release/checksums.txt.bundle

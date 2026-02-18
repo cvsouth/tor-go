@@ -5,6 +5,7 @@ A Tor client implementation in pure Go.
 [![Go Reference](https://pkg.go.dev/badge/github.com/cvsouth/tor-go.svg)](https://pkg.go.dev/github.com/cvsouth/tor-go)
 [![Test](https://github.com/cvsouth/tor-go/actions/workflows/test.yml/badge.svg)](https://github.com/cvsouth/tor-go/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cvsouth/tor-go)](https://goreportcard.com/report/github.com/cvsouth/tor-go)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/cvsouth/tor-go/badge)](https://scorecard.dev/viewer/?uri=github.com/cvsouth/tor-go)
 
 ## Features
 

@@ -1,0 +1,38 @@
+name: Re-trigger Version Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'version'  # Only re-trigger when version file changes
+
+# Declare default permissions as read only for security
+permissions: read-all
+
+jobs:
+  retrigger:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read   # Required for gh pr list
+      actions: write        # Required for gh workflow run
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Re-trigger version checks on open PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Version file changed on main, re-triggering checks on open PRs..."
+
+          # Get all open PRs targeting main
+          gh pr list --base main --state open --json number,headRefName --jq '.[]' | while read -r pr_info; do
+            pr_num=$(echo "$pr_info" | jq -r '.number')
+            branch=$(echo "$pr_info" | jq -r '.headRefName')
+
+            echo "Triggering version check for PR #$pr_num (branch: $branch)"
+            gh workflow run version-check.yml --ref "$branch" || echo "  Failed to trigger (branch may be from fork)"
+          done
+
+          echo "Done triggering re-checks"
