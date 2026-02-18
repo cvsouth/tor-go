@@ -13,8 +13,8 @@ import (
 
 func TestDoHandshakeValid(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	errCh := make(chan error, 1)
@@ -42,8 +42,8 @@ func TestDoHandshakeValid(t *testing.T) {
 
 func TestDoHandshakeNoAuthNotOffered(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	errCh := make(chan error, 1)
@@ -70,8 +70,8 @@ func TestDoHandshakeNoAuthNotOffered(t *testing.T) {
 
 func TestDoHandshakeWrongVersion(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	errCh := make(chan error, 1)
@@ -92,8 +92,8 @@ func TestDoHandshakeWrongVersion(t *testing.T) {
 
 func TestReadConnectDomain(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	type result struct {
@@ -124,8 +124,8 @@ func TestReadConnectDomain(t *testing.T) {
 
 func TestReadConnectIPv4(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	type result struct {
@@ -153,8 +153,8 @@ func TestReadConnectIPv4(t *testing.T) {
 
 func TestReadConnectIPv6Rejected(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	type result struct {
@@ -189,8 +189,8 @@ func TestReadConnectIPv6Rejected(t *testing.T) {
 
 func TestReadConnectUnsupportedCommand(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	type result struct {
@@ -224,8 +224,8 @@ func TestReadConnectUnsupportedCommand(t *testing.T) {
 
 func TestSendReply(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	go sendReply(server, 0x00)
 
@@ -268,7 +268,7 @@ func TestListenNonLoopbackRejected(t *testing.T) {
 	}
 	err := s.ListenAndServe()
 	if err == nil {
-		s.Close()
+		_ = s.Close()
 		t.Fatal("expected error for non-loopback address")
 	}
 }
@@ -276,7 +276,7 @@ func TestListenNonLoopbackRejected(t *testing.T) {
 func TestHandleConnFullFlow(t *testing.T) {
 	// Test a full SOCKS5 handshake + CONNECT that fails at GetCirc
 	client, server := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	s := &Server{
 		GetCirc: func() (*circuit.Circuit, error) {
@@ -323,16 +323,16 @@ func TestServerClose(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	// Second close should not panic
-	s.Close()
+	_ = s.Close()
 }
 
 func TestHandleOnionRouting(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Create a mock onion handler that returns a simple pipe
 	onionClient, onionServer := net.Pipe()
-	defer onionClient.Close()
+	defer func() { _ = onionClient.Close() }()
 
 	s := &Server{
 		OnionHandler: func(addr string, port uint16) (io.ReadWriteCloser, error) {
@@ -375,7 +375,7 @@ func TestHandleOnionRouting(t *testing.T) {
 	// Send data through onion connection
 	go func() {
 		_, _ = onionClient.Write([]byte("hello from onion"))
-		onionClient.Close()
+		_ = onionClient.Close()
 	}()
 
 	data := make([]byte, 100)
@@ -384,14 +384,14 @@ func TestHandleOnionRouting(t *testing.T) {
 		t.Fatalf("got %q, want %q", data[:n], "hello from onion")
 	}
 
-	client.Close()
+	_ = client.Close()
 	<-done
 }
 
 func TestReadConnectEmptyDomain(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	s := &Server{}
 	type result struct {

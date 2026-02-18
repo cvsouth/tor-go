@@ -107,7 +107,7 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Set initial deadline for handshake + connect (2 minutes)
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
@@ -149,7 +149,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		sendReply(conn, 0x04) // Host unreachable
 		return
 	}
-	defer torStream.Close()
+	defer func() { _ = torStream.Close() }()
 
 	// Send success reply
 	sendReply(conn, 0x00)
@@ -270,7 +270,7 @@ func (s *Server) handleOnion(conn net.Conn, onionAddr string, port uint16) {
 		sendReply(conn, 0x04) // Host unreachable
 		return
 	}
-	defer rwc.Close()
+	defer func() { _ = rwc.Close() }()
 
 	sendReply(conn, 0x00)
 

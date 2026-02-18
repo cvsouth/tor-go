@@ -78,8 +78,8 @@ func Create(l *link.Link, relayInfo *descriptor.RelayInfo, logger *slog.Logger) 
 	copy(p[4:88], clientData[:])
 
 	// Set deadline for circuit creation
-	l.SetDeadline(time.Now().Add(30 * time.Second))
-	defer l.SetDeadline(time.Time{}) // Clear deadline after
+	_ = l.SetDeadline(time.Now().Add(30 * time.Second))
+	defer func() { _ = l.SetDeadline(time.Time{}) }() // Clear deadline after
 
 	logger.Debug("sending CREATE2", "circID", fmt.Sprintf("0x%08x", circID))
 	if err := l.Writer.WriteCell(create2); err != nil {

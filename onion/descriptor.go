@@ -33,7 +33,7 @@ func FetchDescriptor(client *http.Client, hsdirAddr string, blindedKey [32]byte)
 	if err != nil {
 		return "", fmt.Errorf("fetch descriptor from %s: %w", hsdirAddr, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("fetch descriptor from %s: HTTP %d", hsdirAddr, resp.StatusCode)

@@ -204,17 +204,17 @@ func tryBuildInitialCircuit(consensus *directory.Consensus, logger *slog.Logger)
 	_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 	circ, err := circuit.Create(l, relayInfoFromConsensus(&path.Guard), logger)
 	if err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, nil, fmt.Errorf("circuit create: %w", err)
 	}
 
 	if err := circ.Extend(relayInfoFromConsensus(&path.Middle), logger); err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, nil, fmt.Errorf("extend to middle: %w", err)
 	}
 
 	if err := circ.Extend(relayInfoFromConsensus(&path.Exit), logger); err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, nil, fmt.Errorf("extend to exit: %w", err)
 	}
 
@@ -343,14 +343,14 @@ func (cb *circuitBuilder) tryBuildCircuit(target *descriptor.RelayInfo) (*onion.
 	_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 	c, err := circuit.Create(l, guardInfo, cb.logger)
 	if err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, fmt.Errorf("circuit create: %w", err)
 	}
 
 	// Extend to middle.
 	middleInfo := relayInfoFromConsensus(middle)
 	if err := c.Extend(middleInfo, cb.logger); err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, fmt.Errorf("extend to middle: %w", err)
 	}
 
@@ -362,7 +362,7 @@ func (cb *circuitBuilder) tryBuildCircuit(target *descriptor.RelayInfo) (*onion.
 		lastHopInfo = relayInfoFromConsensus(lastHopRelay)
 	}
 	if err := c.Extend(lastHopInfo, cb.logger); err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, fmt.Errorf("extend to last hop: %w", err)
 	}
 

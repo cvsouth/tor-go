@@ -80,7 +80,7 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	// Set deadline for entire handshake phase
 	_ = tlsConn.SetDeadline(time.Now().Add(30 * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
-		tcpConn.Close()
+		_ = tcpConn.Close()
 		return nil, fmt.Errorf("tls handshake: %w", err)
 	}
 	logger.Info("tls established", "version", tlsConn.ConnectionState().Version)
@@ -88,7 +88,7 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	// Get peer TLS cert for CERTS validation
 	state := tlsConn.ConnectionState()
 	if len(state.PeerCertificates) == 0 {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("no peer TLS certificate")
 	}
 	peerCertDER := state.PeerCertificates[0].Raw
@@ -103,13 +103,13 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	versionsCell := cell.NewVersionsCell([]uint16{4, 5})
 	logger.Debug("sending VERSIONS", "versions", []uint16{4, 5})
 	if err := cw.WriteCell(versionsCell); err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("send VERSIONS: %w", err)
 	}
 
 	serverVersions, err := cr.ReadVersionsCell()
 	if err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("read VERSIONS: %w", err)
 	}
 	versions := cell.ParseVersions(serverVersions)
@@ -117,7 +117,7 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 
 	negotiated := negotiateVersion(versions)
 	if negotiated == 0 {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("no common link protocol version >= 4 (server offered %v)", versions)
 	}
 	logger.Info("version negotiated", "version", negotiated)
@@ -125,13 +125,13 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	// Step 3: Read CERTS cell
 	certsCell, err := readExpectedCell(cr, cell.CmdCerts, logger)
 	if err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("read CERTS: %w", err)
 	}
 
 	identityKey, err := validateCerts(certsCell.Payload(), peerCertHash[:], logger)
 	if err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("validate CERTS: %w", err)
 	}
 	logger.Debug("certs validated", "identity", fmt.Sprintf("%x", identityKey[:8]))
@@ -139,7 +139,7 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	// Step 4: Read AUTH_CHALLENGE (discard)
 	_, err = readExpectedCell(cr, cell.CmdAuthChallenge, logger)
 	if err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("read AUTH_CHALLENGE: %w", err)
 	}
 	logger.Debug("auth_challenge received and discarded")
@@ -147,7 +147,7 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	// Step 5: Read relay's NETINFO
 	netinfoCell, err := readExpectedCell(cr, cell.CmdNetInfo, logger)
 	if err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("read NETINFO: %w", err)
 	}
 	logger.Debug("received relay NETINFO", "payload_hex", fmt.Sprintf("%x", netinfoCell.Payload()[:20]))
@@ -155,19 +155,19 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 	// Step 6: Send our NETINFO
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("parse relay addr: %w", err)
 	}
 	relayIP := net.ParseIP(host).To4()
 	if relayIP == nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("relay IP not IPv4: %s", host)
 	}
 
 	ourNetinfo := buildNetInfo(relayIP)
 	logger.Debug("sending NETINFO")
 	if err := cw.WriteCell(ourNetinfo); err != nil {
-		tlsConn.Close()
+		_ = tlsConn.Close()
 		return nil, fmt.Errorf("send NETINFO: %w", err)
 	}
 

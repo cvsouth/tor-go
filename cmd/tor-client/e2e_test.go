@@ -284,7 +284,7 @@ func TestE2ECircuitBuild(t *testing.T) {
 	circ, l := buildCircuit(t, consensus, logger, 3)
 	t.Cleanup(func() {
 		_ = circ.Destroy()
-		l.Close()
+		_ = l.Close()
 	})
 
 	// Open a stream and make an HTTP request through the circuit
@@ -348,19 +348,19 @@ func TestE2ECircuitRetry(t *testing.T) {
 		_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 		circ, err := circuit.Create(l, relayInfoFromConsensus(&path.Guard), logger)
 		if err != nil {
-			l.Close()
+			_ = l.Close()
 			t.Logf("  Create failed: %v", err)
 			continue
 		}
 
 		if err := circ.Extend(relayInfoFromConsensus(&path.Middle), logger); err != nil {
-			l.Close()
+			_ = l.Close()
 			t.Logf("  Extend to middle failed: %v", err)
 			continue
 		}
 
 		if err := circ.Extend(relayInfoFromConsensus(&path.Exit), logger); err != nil {
-			l.Close()
+			_ = l.Close()
 			t.Logf("  Extend to exit failed: %v", err)
 			continue
 		}
@@ -368,7 +368,7 @@ func TestE2ECircuitRetry(t *testing.T) {
 		_ = l.SetDeadline(time.Time{})
 		t.Logf("  Success (ID: 0x%08x)", circ.ID)
 		_ = circ.Destroy()
-		l.Close()
+		_ = l.Close()
 		successes++
 	}
 

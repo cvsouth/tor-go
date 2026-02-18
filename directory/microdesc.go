@@ -78,12 +78,12 @@ func UpdateRelaysWithMicrodescriptors(addr string, relays []Relay) error {
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			continue
 		}
 
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			continue
 		}

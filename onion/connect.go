@@ -126,7 +126,7 @@ func fetchFromHSDir(hsdir *directory.Relay, blindedKey [32]byte, httpClient *htt
 		if err != nil {
 			return "", fmt.Errorf("build circuit to HSDir: %w", err)
 		}
-		defer built.LinkCloser.Close()
+		defer func() { _ = built.LinkCloser.Close() }()
 		return FetchDescriptorViaCircuit(built.Circuit, blindedKey)
 	}
 	return "", nil // No way to fetch from this HSDir
@@ -202,24 +202,24 @@ func ConnectOnionService(
 	// 3. Generate rendezvous cookie and send ESTABLISH_RENDEZVOUS.
 	cookie, err := GenerateRendezvousCookie()
 	if err != nil {
-		rendBuilt.LinkCloser.Close()
+		_ = rendBuilt.LinkCloser.Close()
 		return nil, fmt.Errorf("generate cookie: %w", err)
 	}
 
 	logger.Info("sending ESTABLISH_RENDEZVOUS")
 	if err := rendBuilt.Circuit.SendRelay(circuit.RelayEstablishRendezvous, 0, cookie[:]); err != nil {
-		rendBuilt.LinkCloser.Close()
+		_ = rendBuilt.LinkCloser.Close()
 		return nil, fmt.Errorf("send ESTABLISH_RENDEZVOUS: %w", err)
 	}
 
 	// 4. Wait for RENDEZVOUS_ESTABLISHED.
 	_, relayCmd, _, _, err := rendBuilt.Circuit.ReceiveRelay()
 	if err != nil {
-		rendBuilt.LinkCloser.Close()
+		_ = rendBuilt.LinkCloser.Close()
 		return nil, fmt.Errorf("receive RENDEZVOUS_ESTABLISHED: %w", err)
 	}
 	if relayCmd != circuit.RelayRendezvousEstablished {
-		rendBuilt.LinkCloser.Close()
+		_ = rendBuilt.LinkCloser.Close()
 		return nil, fmt.Errorf("expected RENDEZVOUS_ESTABLISHED (39), got %d", relayCmd)
 	}
 	logger.Info("rendezvous established")
@@ -232,7 +232,7 @@ func ConnectOnionService(
 		[32]byte{}, // Ed25519 ID — not always available from consensus
 	)
 	if err != nil {
-		rendBuilt.LinkCloser.Close()
+		_ = rendBuilt.LinkCloser.Close()
 		return nil, fmt.Errorf("build rend link specs: %w", err)
 	}
 
@@ -253,14 +253,14 @@ func ConnectOnionService(
 		target := fmt.Sprintf("%s:%d", address, port)
 		s, err := stream.Begin(rendBuilt.Circuit, target)
 		if err != nil {
-			rendBuilt.LinkCloser.Close()
+			_ = rendBuilt.LinkCloser.Close()
 			return nil, fmt.Errorf("stream begin: %w", err)
 		}
 
 		return &onionStream{Stream: s, linkCloser: rendBuilt.LinkCloser}, nil
 	}
 
-	rendBuilt.LinkCloser.Close()
+	_ = rendBuilt.LinkCloser.Close()
 	return nil, fmt.Errorf("all introduction points failed: %w", lastIntroErr)
 }
 
@@ -293,7 +293,7 @@ func tryIntroPoint(
 	if err != nil {
 		return fmt.Errorf("build intro circuit: %w", err)
 	}
-	defer introBuilt.LinkCloser.Close()
+	defer func() { _ = introBuilt.LinkCloser.Close() }()
 
 	// Build the INTRODUCE1 payload.
 	// authKey: the intro point's auth key certificate (contains the ed25519 key)
@@ -398,6 +398,6 @@ type onionStream struct {
 
 func (s *onionStream) Close() error {
 	err := s.Stream.Close()
-	s.linkCloser.Close()
+	_ = s.linkCloser.Close()
 	return err
 }
