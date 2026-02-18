@@ -132,15 +132,20 @@ jobs:
         run: |
           cosign sign-blob release/checksums.txt \
             --yes \
-            --bundle release/checksums.txt.bundle
+            --bundle release/checksums.txt.sigstore.json
 
       - name: Sign binaries with Cosign
         run: |
           for binary in release/tor-client-*; do
             cosign sign-blob "$binary" \
               --yes \
-              --bundle "${binary}.bundle"
+              --bundle "${binary}.sigstore.json"
           done
+
+      - name: Generate SBOM
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          cyclonedx-gomod app -json -output release/tor-client.cdx.json ./cmd/tor-client
 
       - name: Generate SLSA provenance attestations
         uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v2.1.0
@@ -156,14 +161,15 @@ jobs:
             --title "${{ steps.version.outputs.next_version }}" \
             --generate-notes \
             ./release/tor-client-linux-amd64 \
-            ./release/tor-client-linux-amd64.bundle \
+            ./release/tor-client-linux-amd64.sigstore.json \
             ./release/tor-client-linux-arm64 \
-            ./release/tor-client-linux-arm64.bundle \
+            ./release/tor-client-linux-arm64.sigstore.json \
             ./release/tor-client-windows-amd64.exe \
-            ./release/tor-client-windows-amd64.exe.bundle \
+            ./release/tor-client-windows-amd64.exe.sigstore.json \
             ./release/tor-client-darwin-amd64 \
-            ./release/tor-client-darwin-amd64.bundle \
+            ./release/tor-client-darwin-amd64.sigstore.json \
             ./release/tor-client-darwin-arm64 \
-            ./release/tor-client-darwin-arm64.bundle \
+            ./release/tor-client-darwin-arm64.sigstore.json \
             ./release/checksums.txt \
-            ./release/checksums.txt.bundle
+            ./release/checksums.txt.sigstore.json \
+            ./release/tor-client.cdx.json
