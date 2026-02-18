@@ -120,19 +120,19 @@ func buildCircuit(t *testing.T, consensus *directory.Consensus, logger *slog.Log
 		_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 		circ, err := circuit.Create(l, guardInfo, logger)
 		if err != nil {
-			l.Close()
+			_ = l.Close()
 			t.Logf("  Attempt %d: create failed: %v", attempt, err)
 			continue
 		}
 
 		if err := circ.Extend(relayInfoFromConsensus(&path.Middle), logger); err != nil {
-			l.Close()
+			_ = l.Close()
 			t.Logf("  Attempt %d: extend to middle failed: %v", attempt, err)
 			continue
 		}
 
 		if err := circ.Extend(relayInfoFromConsensus(&path.Exit), logger); err != nil {
-			l.Close()
+			_ = l.Close()
 			t.Logf("  Attempt %d: extend to exit failed: %v", attempt, err)
 			continue
 		}
@@ -293,7 +293,7 @@ func TestE2ECircuitBuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stream.Begin: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	_, err = fmt.Fprintf(s, "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
 	if err != nil {

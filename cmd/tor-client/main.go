@@ -27,7 +27,7 @@ var Version = "dev"
 
 func main() {
 	logger, logFile := setupLogging()
-	defer logFile.Close()
+	defer func() { _ = logFile.Close() }()
 
 	fmt.Printf("=== Daphne Tor Client %s ===\n", Version)
 	fmt.Println()
@@ -258,12 +258,12 @@ func runSOCKSProxy(consensus *directory.Consensus, circ *circuit.Circuit, circLi
 	go func() {
 		<-sigCh
 		fmt.Println("\nShutting down...")
-		srv.Close()
+		_ = srv.Close()
 		mu.Lock()
 		_ = circ.Destroy()
 		circ = nil
 		mu.Unlock()
-		circLink.Close()
+		_ = circLink.Close()
 	}()
 
 	fmt.Println("Ready. Use: curl --socks5-hostname 127.0.0.1:9050 http://example.com")

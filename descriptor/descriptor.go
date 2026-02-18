@@ -40,7 +40,7 @@ func FetchDescriptor(dirAddr string, fingerprint string) (*RelayInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch descriptor: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("fetch descriptor: HTTP %d", resp.StatusCode)
