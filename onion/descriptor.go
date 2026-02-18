@@ -156,8 +156,8 @@ func decodeChunked(data string) string {
 		}
 		var size int
 		_, err := fmt.Sscanf(sizeHex, "%x", &size)
-		if err != nil || size == 0 {
-			break // size=0 means end of chunked data
+		if err != nil || size <= 0 {
+			break // size<=0 means end of chunked data
 		}
 		remaining = remaining[crlfIdx+2:]
 		if len(remaining) < size {
