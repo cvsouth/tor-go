@@ -241,7 +241,7 @@ func TestCacheSaveAndLoadKeyCerts(t *testing.T) {
 	if loaded[0].SigningKeyDigest != certs[0].SigningKeyDigest {
 		t.Fatal("signing key digest mismatch")
 	}
-	if loaded[0].SigningKey.N.Cmp(key.PublicKey.N) != 0 {
+	if loaded[0].SigningKey.N.Cmp(key.N) != 0 {
 		t.Fatal("signing key mismatch")
 	}
 }
