@@ -220,7 +220,7 @@ func TestCacheSaveAndLoadKeyCerts(t *testing.T) {
 			IdentityFingerprint: "F533C81CEF0BC0267857C99B2F471ADF249FA232",
 			SigningKeyDigest:    skDigest,
 			SigningKey:          &key.PublicKey,
-			Expires:            time.Now().Add(365 * 24 * time.Hour),
+			Expires:             time.Now().Add(365 * 24 * time.Hour),
 		},
 	}
 
@@ -256,7 +256,7 @@ func TestCacheLoadKeyCertsExpiredFiltered(t *testing.T) {
 			IdentityFingerprint: "F533C81CEF0BC0267857C99B2F471ADF249FA232",
 			SigningKeyDigest:    "ABCD",
 			SigningKey:          &key.PublicKey,
-			Expires:            time.Now().Add(-24 * time.Hour), // expired
+			Expires:             time.Now().Add(-24 * time.Hour), // expired
 		},
 	}
 

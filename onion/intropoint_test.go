@@ -87,13 +87,13 @@ func TestParseIntroPointsEmpty(t *testing.T) {
 func TestParseLinkSpecifiers(t *testing.T) {
 	// Build a link specifier block: NSPEC=2, IPv4 + RSA identity
 	data := []byte{
-		0x02,                                     // NSPEC = 2
-		0x00, 0x06,                               // LSTYPE=IPv4, LSLEN=6
-		192, 168, 1, 1,                           // IP
-		0x01, 0xBB,                               // port 443
-		0x02, 0x14,                               // LSTYPE=RSA, LSLEN=20
+		0x02,       // NSPEC = 2
+		0x00, 0x06, // LSTYPE=IPv4, LSLEN=6
+		192, 168, 1, 1, // IP
+		0x01, 0xBB, // port 443
+		0x02, 0x14, // LSTYPE=RSA, LSLEN=20
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-		11, 12, 13, 14, 15, 16, 17, 18, 19, 20,  // identity
+		11, 12, 13, 14, 15, 16, 17, 18, 19, 20, // identity
 	}
 
 	specs, err := ParseLinkSpecifiers(data)

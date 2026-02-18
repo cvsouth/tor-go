@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	sKeyLen    = 32 // AES-256
-	sIVLen     = 16 // AES-CTR IV
-	macKeyLen  = 32
-	saltLen    = 16
-	macLen     = 32 // SHA3-256 output
-	totalKeys  = sKeyLen + sIVLen + macKeyLen
+	sKeyLen   = 32 // AES-256
+	sIVLen    = 16 // AES-CTR IV
+	macKeyLen = 32
+	saltLen   = 16
+	macLen    = 32 // SHA3-256 output
+	totalKeys = sKeyLen + sIVLen + macKeyLen
 )
 
 // DecryptDescriptorLayer decrypts one layer of a v3 HS descriptor.

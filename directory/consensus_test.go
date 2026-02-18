@@ -44,76 +44,79 @@ func TestParseConsensus(t *testing.T) {
 		t.Fatalf("ParseConsensus: %v", err)
 	}
 
-	// Check timestamps
-	if c.ValidAfter.Year() != 2025 || c.ValidAfter.Hour() != 12 {
-		t.Fatalf("ValidAfter = %v", c.ValidAfter)
-	}
-	if c.FreshUntil.Hour() != 13 {
-		t.Fatalf("FreshUntil = %v", c.FreshUntil)
-	}
-	if c.ValidUntil.Hour() != 15 {
-		t.Fatalf("ValidUntil = %v", c.ValidUntil)
-	}
+	t.Run("timestamps", func(t *testing.T) {
+		if c.ValidAfter.Year() != 2025 || c.ValidAfter.Hour() != 12 {
+			t.Fatalf("ValidAfter = %v", c.ValidAfter)
+		}
+		if c.FreshUntil.Hour() != 13 {
+			t.Fatalf("FreshUntil = %v", c.FreshUntil)
+		}
+		if c.ValidUntil.Hour() != 15 {
+			t.Fatalf("ValidUntil = %v", c.ValidUntil)
+		}
+	})
 
-	// Check relay count
 	if len(c.Relays) != 3 {
 		t.Fatalf("got %d relays, want 3", len(c.Relays))
 	}
 
-	// Check first relay
-	r1 := c.Relays[0]
+	t.Run("relay0", func(t *testing.T) {
+		checkRelay0(t, c.Relays[0])
+	})
+
+	t.Run("relay1", func(t *testing.T) {
+		r2 := c.Relays[1]
+		if r2.Nickname != "TestRelay2" {
+			t.Fatalf("nickname = %q", r2.Nickname)
+		}
+		if r2.DirPort != 9030 {
+			t.Fatalf("DirPort = %d", r2.DirPort)
+		}
+		if !r2.Flags.HSDir {
+			t.Fatal("should have HSDir flag")
+		}
+		if r2.Flags.Exit {
+			t.Fatal("should not have Exit flag")
+		}
+	})
+
+	t.Run("relay2", func(t *testing.T) {
+		if !c.Relays[2].Flags.BadExit {
+			t.Fatal("should have BadExit flag")
+		}
+	})
+
+	t.Run("bandwidth_weights", func(t *testing.T) {
+		if c.BandwidthWeights["Wgg"] != 5869 {
+			t.Fatalf("Wgg = %d, want 5869", c.BandwidthWeights["Wgg"])
+		}
+		if c.BandwidthWeights["Wbm"] != 10000 {
+			t.Fatalf("Wbm = %d, want 10000", c.BandwidthWeights["Wbm"])
+		}
+	})
+}
+
+func checkRelay0(t *testing.T, r1 Relay) {
+	t.Helper()
 	if r1.Nickname != "TestRelay1" {
-		t.Fatalf("relay 0 nickname = %q", r1.Nickname)
+		t.Fatalf("nickname = %q", r1.Nickname)
 	}
 	if r1.Address != "1.2.3.4" {
-		t.Fatalf("relay 0 address = %q", r1.Address)
+		t.Fatalf("address = %q", r1.Address)
 	}
 	if r1.ORPort != 9001 {
-		t.Fatalf("relay 0 ORPort = %d", r1.ORPort)
+		t.Fatalf("ORPort = %d", r1.ORPort)
 	}
 	if !r1.Flags.Exit || !r1.Flags.Fast || !r1.Flags.Guard || !r1.Flags.Running {
-		t.Fatalf("relay 0 flags wrong: %+v", r1.Flags)
+		t.Fatalf("flags wrong: %+v", r1.Flags)
 	}
 	if r1.Bandwidth != 5000 {
-		t.Fatalf("relay 0 bandwidth = %d", r1.Bandwidth)
+		t.Fatalf("bandwidth = %d", r1.Bandwidth)
 	}
-
-	// Check identity decode — 20 zero bytes
-	expectedID := make([]byte, 20)
 	for i := 0; i < 20; i++ {
-		if r1.Identity[i] != expectedID[i] {
-			t.Fatalf("relay 0 identity mismatch at byte %d", i)
-			break
+		if r1.Identity[i] != 0 {
+			t.Fatalf("identity mismatch at byte %d", i)
 		}
-	}
-
-	// Check second relay
-	r2 := c.Relays[1]
-	if r2.Nickname != "TestRelay2" {
-		t.Fatalf("relay 1 nickname = %q", r2.Nickname)
-	}
-	if r2.DirPort != 9030 {
-		t.Fatalf("relay 1 DirPort = %d", r2.DirPort)
-	}
-	if !r2.Flags.HSDir {
-		t.Fatal("relay 1 should have HSDir flag")
-	}
-	if r2.Flags.Exit {
-		t.Fatal("relay 1 should not have Exit flag")
-	}
-
-	// Check bad relay
-	r3 := c.Relays[2]
-	if !r3.Flags.BadExit {
-		t.Fatal("relay 2 should have BadExit flag")
-	}
-
-	// Check bandwidth weights
-	if c.BandwidthWeights["Wgg"] != 5869 {
-		t.Fatalf("Wgg = %d, want 5869", c.BandwidthWeights["Wgg"])
-	}
-	if c.BandwidthWeights["Wbm"] != 10000 {
-		t.Fatalf("Wbm = %d, want 10000", c.BandwidthWeights["Wbm"])
 	}
 }
 
@@ -229,7 +232,7 @@ func buildSignedConsensus(t *testing.T, numSigners int) (string, []KeyCert) {
 			IdentityFingerprint: fp,
 			SigningKeyDigest:    skDigest,
 			SigningKey:          &privKey.PublicKey,
-			Expires:            time.Now().Add(365 * 24 * time.Hour),
+			Expires:             time.Now().Add(365 * 24 * time.Hour),
 		}
 		certs = append(certs, kc)
 		signers = append(signers, signer{fp: fp, privKey: privKey, cert: kc})

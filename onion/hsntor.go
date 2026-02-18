@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	hsNtorProtoid  = "tor-hs-ntor-curve25519-sha3-256-1"
-	pkPubkeyLen    = 32
-	macOutputLen   = 32 // SHA3-256 output
+	hsNtorProtoid = "tor-hs-ntor-curve25519-sha3-256-1"
+	pkPubkeyLen   = 32
+	macOutputLen  = 32 // SHA3-256 output
 )
 
 var (
@@ -25,11 +25,11 @@ var (
 
 // HsNtorClientState holds the client's ephemeral state during an hs-ntor handshake.
 type HsNtorClientState struct {
-	X         [32]byte // Client ephemeral public key
-	x         [32]byte // Client ephemeral private key
-	B         [32]byte // Service encryption key (KP_hss_ntor / enc-key ntor)
-	AuthKey   []byte   // Introduction point auth key
-	Subcred   [32]byte // Subcredential
+	X       [32]byte // Client ephemeral public key
+	x       [32]byte // Client ephemeral private key
+	B       [32]byte // Service encryption key (KP_hss_ntor / enc-key ntor)
+	AuthKey []byte   // Introduction point auth key
+	Subcred [32]byte // Subcredential
 }
 
 // HsNtorClientHandshake initiates the client side of an hs-ntor handshake.

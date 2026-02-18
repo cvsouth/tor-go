@@ -74,7 +74,7 @@ func Create(l *link.Link, relayInfo *descriptor.RelayInfo, logger *slog.Logger) 
 	create2 := cell.NewFixedCell(circID, cell.CmdCreate2)
 	p := create2.Payload()
 	binary.BigEndian.PutUint16(p[0:2], 0x0002) // HTYPE = ntor
-	binary.BigEndian.PutUint16(p[2:4], 84)      // HLEN = 84
+	binary.BigEndian.PutUint16(p[2:4], 84)     // HLEN = 84
 	copy(p[4:88], clientData[:])
 
 	// Set deadline for circuit creation

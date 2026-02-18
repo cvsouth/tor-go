@@ -17,10 +17,10 @@ func testConsensus() *directory.Consensus {
 
 	// Guard+Exit relay
 	r1 := directory.Relay{
-		Nickname:  "GuardExit1",
-		Address:   "1.2.3.4",
-		ORPort:    9001,
-		Bandwidth: 5000,
+		Nickname:   "GuardExit1",
+		Address:    "1.2.3.4",
+		ORPort:     9001,
+		Bandwidth:  5000,
 		HasNtorKey: true,
 	}
 	r1.Identity = [20]byte{1}
@@ -32,10 +32,10 @@ func testConsensus() *directory.Consensus {
 
 	// Guard-only relay
 	r2 := directory.Relay{
-		Nickname:  "Guard2",
-		Address:   "5.6.7.8",
-		ORPort:    443,
-		Bandwidth: 3000,
+		Nickname:   "Guard2",
+		Address:    "5.6.7.8",
+		ORPort:     443,
+		Bandwidth:  3000,
 		HasNtorKey: true,
 	}
 	r2.Identity = [20]byte{2}
@@ -46,10 +46,10 @@ func testConsensus() *directory.Consensus {
 
 	// Middle relay
 	r3 := directory.Relay{
-		Nickname:  "Middle3",
-		Address:   "10.20.30.40",
-		ORPort:    9001,
-		Bandwidth: 2000,
+		Nickname:   "Middle3",
+		Address:    "10.20.30.40",
+		ORPort:     9001,
+		Bandwidth:  2000,
 		HasNtorKey: true,
 	}
 	r3.Identity = [20]byte{3}
@@ -59,10 +59,10 @@ func testConsensus() *directory.Consensus {
 
 	// Exit-only relay
 	r4 := directory.Relay{
-		Nickname:  "Exit4",
-		Address:   "20.30.40.50",
-		ORPort:    443,
-		Bandwidth: 4000,
+		Nickname:   "Exit4",
+		Address:    "20.30.40.50",
+		ORPort:     443,
+		Bandwidth:  4000,
 		HasNtorKey: true,
 	}
 	r4.Identity = [20]byte{4}
@@ -73,10 +73,10 @@ func testConsensus() *directory.Consensus {
 
 	// BadExit relay (should never be selected as exit)
 	r5 := directory.Relay{
-		Nickname:  "BadExit5",
-		Address:   "30.40.50.60",
-		ORPort:    9001,
-		Bandwidth: 10000,
+		Nickname:   "BadExit5",
+		Address:    "30.40.50.60",
+		ORPort:     9001,
+		Bandwidth:  10000,
 		HasNtorKey: true,
 	}
 	r5.Identity = [20]byte{5}

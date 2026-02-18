@@ -162,8 +162,8 @@ func (c *Cache) SaveMicrodescriptors(relays []Relay) error {
 // cachedKeyCert is the on-disk format for a cached authority key certificate.
 type cachedKeyCert struct {
 	IdentityFingerprint string    `json:"identity_fingerprint"`
-	SigningKeyDigest     string    `json:"signing_key_digest"`
-	SigningKeyPEM        string    `json:"signing_key_pem"`
+	SigningKeyDigest    string    `json:"signing_key_digest"`
+	SigningKeyPEM       string    `json:"signing_key_pem"`
 	Expires             time.Time `json:"expires"`
 }
 
@@ -199,7 +199,7 @@ func (c *Cache) LoadKeyCerts() ([]KeyCert, error) {
 			IdentityFingerprint: cc.IdentityFingerprint,
 			SigningKeyDigest:    cc.SigningKeyDigest,
 			SigningKey:          pubKey,
-			Expires:            cc.Expires,
+			Expires:             cc.Expires,
 		})
 	}
 	if len(certs) == 0 {
@@ -228,7 +228,7 @@ func (c *Cache) SaveKeyCerts(certs []KeyCert) error {
 			IdentityFingerprint: kc.IdentityFingerprint,
 			SigningKeyDigest:    kc.SigningKeyDigest,
 			SigningKeyPEM:       string(pemBytes),
-			Expires:            kc.Expires,
+			Expires:             kc.Expires,
 		})
 	}
 

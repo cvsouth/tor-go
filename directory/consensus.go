@@ -216,89 +216,101 @@ func ParseConsensus(text string) (*Consensus, error) {
 	for _, line := range lines {
 		line = strings.TrimRight(line, "\r")
 
+		if err := parseConsensusHeader(c, line); err != nil {
+			return nil, err
+		}
+
 		switch {
-		case strings.HasPrefix(line, "valid-after "):
-			t, err := time.Parse("2006-01-02 15:04:05", line[len("valid-after "):])
-			if err != nil {
-				return nil, fmt.Errorf("parse valid-after: %w", err)
-			}
-			c.ValidAfter = t
-
-		case strings.HasPrefix(line, "fresh-until "):
-			t, err := time.Parse("2006-01-02 15:04:05", line[len("fresh-until "):])
-			if err != nil {
-				return nil, fmt.Errorf("parse fresh-until: %w", err)
-			}
-			c.FreshUntil = t
-
-		case strings.HasPrefix(line, "valid-until "):
-			t, err := time.Parse("2006-01-02 15:04:05", line[len("valid-until "):])
-			if err != nil {
-				return nil, fmt.Errorf("parse valid-until: %w", err)
-			}
-			c.ValidUntil = t
-
-		case strings.HasPrefix(line, "shared-rand-current-value "):
-			parts := strings.Fields(line)
-			if len(parts) >= 3 {
-				b, err := base64.StdEncoding.DecodeString(parts[2])
-				if err == nil {
-					c.SharedRandCurrentValue = b
-				}
-			}
-
-		case strings.HasPrefix(line, "shared-rand-previous-value "):
-			parts := strings.Fields(line)
-			if len(parts) >= 3 {
-				b, err := base64.StdEncoding.DecodeString(parts[2])
-				if err == nil {
-					c.SharedRandPreviousValue = b
-				}
-			}
-
 		case strings.HasPrefix(line, "r "):
-			// New router entry. Save previous if exists.
 			if currentRelay != nil {
 				c.Relays = append(c.Relays, *currentRelay)
 			}
-			relay, err := parseRouterLine(line)
-			if err != nil {
-				// Skip unparseable router lines
-				currentRelay = nil
-				continue
-			}
-			currentRelay = relay
-
-		case strings.HasPrefix(line, "m "):
-			if currentRelay != nil {
-				// m line: "m <digest>"
-				parts := strings.Fields(line)
-				if len(parts) >= 2 {
-					currentRelay.MicrodescDigest = strings.TrimPrefix(parts[1], "sha256=")
-				}
-			}
-
-		case strings.HasPrefix(line, "s "):
-			if currentRelay != nil {
-				parseFlags(currentRelay, line)
-			}
-
-		case strings.HasPrefix(line, "w "):
-			if currentRelay != nil {
-				parseBandwidth(currentRelay, line)
-			}
-
+			currentRelay = parseRouterOrNil(line)
 		case strings.HasPrefix(line, "bandwidth-weights "):
 			parseBandwidthWeights(c, line)
+		case currentRelay != nil:
+			parseRelayLine(currentRelay, line)
 		}
 	}
 
-	// Don't forget the last relay
 	if currentRelay != nil {
 		c.Relays = append(c.Relays, *currentRelay)
 	}
 
 	return c, nil
+}
+
+func parseConsensusHeader(c *Consensus, line string) error {
+	switch {
+	case strings.HasPrefix(line, "valid-after "):
+		t, err := parseConsensusTime("valid-after", line)
+		if err != nil {
+			return err
+		}
+		c.ValidAfter = t
+	case strings.HasPrefix(line, "fresh-until "):
+		t, err := parseConsensusTime("fresh-until", line)
+		if err != nil {
+			return err
+		}
+		c.FreshUntil = t
+	case strings.HasPrefix(line, "valid-until "):
+		t, err := parseConsensusTime("valid-until", line)
+		if err != nil {
+			return err
+		}
+		c.ValidUntil = t
+	case strings.HasPrefix(line, "shared-rand-current-value "):
+		c.SharedRandCurrentValue = parseSharedRand(line)
+	case strings.HasPrefix(line, "shared-rand-previous-value "):
+		c.SharedRandPreviousValue = parseSharedRand(line)
+	}
+	return nil
+}
+
+func parseRelayLine(relay *Relay, line string) {
+	switch {
+	case strings.HasPrefix(line, "m "):
+		parseMicrodescLine(relay, line)
+	case strings.HasPrefix(line, "s "):
+		parseFlags(relay, line)
+	case strings.HasPrefix(line, "w "):
+		parseBandwidth(relay, line)
+	}
+}
+
+func parseConsensusTime(field, line string) (time.Time, error) {
+	t, err := time.Parse("2006-01-02 15:04:05", line[len(field)+1:])
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse %s: %w", field, err)
+	}
+	return t, nil
+}
+
+func parseSharedRand(line string) []byte {
+	parts := strings.Fields(line)
+	if len(parts) >= 3 {
+		b, err := base64.StdEncoding.DecodeString(parts[2])
+		if err == nil {
+			return b
+		}
+	}
+	return nil
+}
+
+func parseRouterOrNil(line string) *Relay {
+	relay, err := parseRouterLine(line)
+	if err != nil {
+		return nil
+	}
+	return relay
+}
+
+func parseMicrodescLine(relay *Relay, line string) {
+	parts := strings.Fields(line)
+	if len(parts) >= 2 {
+		relay.MicrodescDigest = strings.TrimPrefix(parts[1], "sha256=")
+	}
 }
 
 // parseRouterLine parses an "r" line from the consensus.

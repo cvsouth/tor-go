@@ -22,7 +22,7 @@ type torCert struct {
 	ExpirationHrs uint32
 	KeyType       uint8
 	CertifiedKey  [32]byte
-	SigningKey     [32]byte // from extension type 0x04
+	SigningKey    [32]byte // from extension type 0x04
 	Signature     [64]byte
 	Raw           []byte // full cert bytes for signature verification
 }

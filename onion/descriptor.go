@@ -53,65 +53,76 @@ func FetchDescriptor(client *http.Client, hsdirAddr string, blindedKey [32]byte)
 // The circuit's last hop must be the HSDir relay.
 func FetchDescriptorViaCircuit(circ *circuit.Circuit, blindedKey [32]byte) (string, error) {
 	keyB64 := base64.RawStdEncoding.EncodeToString(blindedKey[:])
-
-	// Send RELAY_BEGIN_DIR (opens a directory stream on the circuit's last hop).
-	// Stream ID allocation via stream.Begin is for RELAY_BEGIN — for BEGIN_DIR
-	// we manually allocate a stream ID and send the cell.
-	streamID := uint16(1) // Simple allocation for single-use circuit
+	streamID := uint16(1)
 
 	if err := circ.SendRelay(circuit.RelayBeginDir, streamID, nil); err != nil {
 		return "", fmt.Errorf("send BEGIN_DIR: %w", err)
 	}
 
-	// Wait for RELAY_CONNECTED.
-	for {
-		_, cmd, sid, _, err := circ.ReceiveRelay()
-		if err != nil {
-			return "", fmt.Errorf("wait for CONNECTED: %w", err)
-		}
-		if sid != streamID {
-			continue
-		}
-		if cmd == circuit.RelayConnected {
-			break
-		}
-		if cmd == circuit.RelayEnd {
-			return "", fmt.Errorf("BEGIN_DIR rejected")
-		}
+	if err := waitForConnected(circ, streamID); err != nil {
+		return "", err
 	}
 
-	// Send the HTTP request over the directory stream.
-	// Use HTTP/1.0 to avoid chunked encoding, and disable compression.
 	httpReq := fmt.Sprintf("GET /tor/hs/3/%s HTTP/1.0\r\nHost: tor\r\nAccept-Encoding: identity\r\n\r\n", keyB64)
 	if err := circ.SendRelay(circuit.RelayData, streamID, []byte(httpReq)); err != nil {
 		return "", fmt.Errorf("send HTTP request: %w", err)
 	}
 
-	// Read the HTTP response.
-	var respBuf []byte
+	respBuf, err := readDirResponse(circ, streamID)
+	if err != nil {
+		return "", err
+	}
+
+	body, err := parseHTTPResponse(string(respBuf))
+	if err != nil {
+		return "", err
+	}
+
+	_ = circ.SendRelay(circuit.RelayEnd, streamID, []byte{6})
+	return body, nil
+}
+
+func waitForConnected(circ *circuit.Circuit, streamID uint16) error {
 	for {
-		_, cmd, sid, data, err := circ.ReceiveRelay()
+		_, cmd, sid, _, err := circ.ReceiveRelay()
 		if err != nil {
-			return "", fmt.Errorf("read HTTP response: %w", err)
+			return fmt.Errorf("wait for CONNECTED: %w", err)
 		}
 		if sid != streamID {
 			continue
 		}
-		if cmd == circuit.RelayData {
-			respBuf = append(respBuf, data...)
-			if len(respBuf) > 256*1024 {
-				return "", fmt.Errorf("descriptor too large")
-			}
-		} else if cmd == circuit.RelayEnd {
-			break
-		} else if cmd == circuit.RelaySendMe {
-			// Flow control — ignore for now, we're reading small data
-			continue
+		if cmd == circuit.RelayConnected {
+			return nil
+		}
+		if cmd == circuit.RelayEnd {
+			return fmt.Errorf("BEGIN_DIR rejected")
 		}
 	}
+}
 
-	// Parse the HTTP response to extract the body.
-	resp := string(respBuf)
+func readDirResponse(circ *circuit.Circuit, streamID uint16) ([]byte, error) {
+	var buf []byte
+	for {
+		_, cmd, sid, data, err := circ.ReceiveRelay()
+		if err != nil {
+			return nil, fmt.Errorf("read HTTP response: %w", err)
+		}
+		if sid != streamID {
+			continue
+		}
+		switch cmd {
+		case circuit.RelayData:
+			buf = append(buf, data...)
+			if len(buf) > 256*1024 {
+				return nil, fmt.Errorf("descriptor too large")
+			}
+		case circuit.RelayEnd:
+			return buf, nil
+		}
+	}
+}
+
+func parseHTTPResponse(resp string) (string, error) {
 	idx := strings.Index(resp, "\r\n\r\n")
 	if idx < 0 {
 		return "", fmt.Errorf("invalid HTTP response from HSDir")
@@ -123,18 +134,10 @@ func FetchDescriptorViaCircuit(circ *circuit.Circuit, blindedKey [32]byte) (stri
 	}
 
 	body := resp[idx+4:]
-
-	// Handle chunked transfer encoding.
 	if strings.Contains(strings.ToLower(headerSection), "transfer-encoding: chunked") {
 		body = decodeChunked(body)
 	}
-
-	body = strings.TrimRight(body, "\x00\r\n ")
-
-	// Send RELAY_END to clean up the stream.
-	_ = circ.SendRelay(circuit.RelayEnd, streamID, []byte{6}) // reason=DONE
-
-	return body, nil
+	return strings.TrimRight(body, "\x00\r\n "), nil
 }
 
 // decodeChunked decodes an HTTP chunked transfer-encoded body.

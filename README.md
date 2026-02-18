@@ -1,4 +1,4 @@
-# tor-go
+# Tor-Go
 
 A Tor client implementation in pure Go.
 

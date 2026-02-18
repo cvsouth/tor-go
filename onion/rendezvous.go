@@ -207,11 +207,11 @@ type sha3Hash struct {
 	}
 }
 
-func (s sha3Hash) Write(p []byte) (int, error)  { return s.h.Write(p) }
-func (s sha3Hash) Sum(b []byte) []byte           { return s.h.Sum(b) }
-func (s sha3Hash) Reset()                        { s.h.Reset() }
-func (s sha3Hash) Size() int                     { return s.h.Size() }
-func (s sha3Hash) BlockSize() int                { return s.h.BlockSize() }
+func (s sha3Hash) Write(p []byte) (int, error) { return s.h.Write(p) }
+func (s sha3Hash) Sum(b []byte) []byte         { return s.h.Sum(b) }
+func (s sha3Hash) Reset()                      { s.h.Reset() }
+func (s sha3Hash) Size() int                   { return s.h.Size() }
+func (s sha3Hash) BlockSize() int              { return s.h.BlockSize() }
 
 func (s sha3Hash) MarshalBinary() ([]byte, error) {
 	if m, ok := s.h.(encoding.BinaryMarshaler); ok {

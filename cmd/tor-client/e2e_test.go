@@ -207,36 +207,54 @@ func TestE2EMicrodescriptors(t *testing.T) {
 
 	_, consensus, _ := fetchConsensusAndCerts(t)
 
-	var useful []directory.Relay
-	for _, r := range consensus.Relays {
-		if r.Flags.Running && r.Flags.Valid && (r.Flags.Guard || r.Flags.Exit || r.Flags.Fast) {
-			useful = append(useful, r)
-		}
-	}
+	useful := filterUsefulRelays(consensus.Relays)
 	if len(useful) < 100 {
 		t.Fatalf("too few useful relays: %d", len(useful))
 	}
 	t.Logf("%d useful relays", len(useful))
 
-	for _, addr := range directory.DirAuthorities {
-		if err := directory.UpdateRelaysWithMicrodescriptors(addr, useful); err == nil {
-			break
-		}
-	}
+	fetchMicrodescriptorsFromAuthorities(useful)
 
-	ntorCount := 0
-	for _, r := range useful {
-		if r.HasNtorKey {
-			ntorCount++
-		}
-	}
+	ntorCount := countNtorKeysInRelays(useful)
 	t.Logf("%d/%d relays got ntor keys", ntorCount, len(useful))
 
 	if ntorCount < len(useful)/2 {
 		t.Fatalf("too few relays with ntor keys: %d/%d", ntorCount, len(useful))
 	}
 
-	// Verify cache round-trip
+	verifyCacheRoundTrip(t, useful, ntorCount)
+}
+
+func filterUsefulRelays(relays []directory.Relay) []directory.Relay {
+	var useful []directory.Relay
+	for _, r := range relays {
+		if r.Flags.Running && r.Flags.Valid && (r.Flags.Guard || r.Flags.Exit || r.Flags.Fast) {
+			useful = append(useful, r)
+		}
+	}
+	return useful
+}
+
+func fetchMicrodescriptorsFromAuthorities(relays []directory.Relay) {
+	for _, addr := range directory.DirAuthorities {
+		if directory.UpdateRelaysWithMicrodescriptors(addr, relays) == nil {
+			break
+		}
+	}
+}
+
+func countNtorKeysInRelays(relays []directory.Relay) int {
+	count := 0
+	for _, r := range relays {
+		if r.HasNtorKey {
+			count++
+		}
+	}
+	return count
+}
+
+func verifyCacheRoundTrip(t *testing.T, useful []directory.Relay, ntorCount int) {
+	t.Helper()
 	cache := &directory.Cache{Dir: t.TempDir()}
 	if err := cache.SaveMicrodescriptors(useful); err != nil {
 		t.Fatalf("SaveMicrodescriptors: %v", err)

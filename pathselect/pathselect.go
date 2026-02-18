@@ -107,37 +107,21 @@ func SelectMiddle(consensus *directory.Consensus, guard, exit *directory.Relay) 
 	var candidates []directory.Relay
 	var weights []int64
 
-	wmm := getWeight(consensus, "Wmm", 10000)
-	wmg := getWeight(consensus, "Wmg", 10000)
-	wme := getWeight(consensus, "Wme", 10000)
-	wmd := getWeight(consensus, "Wmd", 10000)
+	mw := middleWeights{
+		wmm: getWeight(consensus, "Wmm", 10000),
+		wmg: getWeight(consensus, "Wmg", 10000),
+		wme: getWeight(consensus, "Wme", 10000),
+		wmd: getWeight(consensus, "Wmd", 10000),
+	}
 	guardSubnet := subnet16(guard.Address)
 	exitSubnet := subnet16(exit.Address)
 
 	for _, r := range consensus.Relays {
-		if !r.Flags.Fast || !r.Flags.Running || !r.Flags.Valid || !r.HasNtorKey {
-			continue
-		}
-		// Same /16 subnet check
-		s := subnet16(r.Address)
-		if s == guardSubnet || s == exitSubnet {
-			continue
-		}
-		// Don't pick same relay
-		if r.Identity == guard.Identity || r.Identity == exit.Identity {
+		if !isMiddleCandidate(r, guard, exit, guardSubnet, exitSubnet) {
 			continue
 		}
 		candidates = append(candidates, r)
-		w := wmm
-		switch {
-		case r.Flags.Guard && r.Flags.Exit:
-			w = wmd
-		case r.Flags.Guard:
-			w = wmg
-		case r.Flags.Exit:
-			w = wme
-		}
-		weights = append(weights, r.Bandwidth*w/10000)
+		weights = append(weights, r.Bandwidth*mw.forRelay(r)/10000)
 	}
 
 	if len(candidates) == 0 {
@@ -149,6 +133,34 @@ func SelectMiddle(consensus *directory.Consensus, guard, exit *directory.Relay) 
 		return nil, err
 	}
 	return &candidates[idx], nil
+}
+
+type middleWeights struct {
+	wmm, wmg, wme, wmd int64
+}
+
+func (mw middleWeights) forRelay(r directory.Relay) int64 {
+	switch {
+	case r.Flags.Guard && r.Flags.Exit:
+		return mw.wmd
+	case r.Flags.Guard:
+		return mw.wmg
+	case r.Flags.Exit:
+		return mw.wme
+	default:
+		return mw.wmm
+	}
+}
+
+func isMiddleCandidate(r directory.Relay, guard, exit *directory.Relay, guardSubnet, exitSubnet string) bool {
+	if !r.Flags.Fast || !r.Flags.Running || !r.Flags.Valid || !r.HasNtorKey {
+		return false
+	}
+	s := subnet16(r.Address)
+	if s == guardSubnet || s == exitSubnet {
+		return false
+	}
+	return r.Identity != guard.Identity && r.Identity != exit.Identity
 }
 
 func getWeight(c *directory.Consensus, key string, defaultVal int64) int64 {

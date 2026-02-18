@@ -26,7 +26,7 @@ type IntroPoint struct {
 
 // ParsedLinkSpecs holds the extracted fields from link specifiers.
 type ParsedLinkSpecs struct {
-	Address    string   // IPv4 or IPv6 address
+	Address    string // IPv4 or IPv6 address
 	ORPort     uint16
 	Identity   [20]byte // RSA identity (SHA-1 fingerprint)
 	Ed25519ID  [32]byte
@@ -170,70 +170,27 @@ func parseIntroPoints(text string) ([]IntroPoint, error) {
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 
-		switch {
-		case strings.HasPrefix(line, "introduction-point "):
+		if strings.HasPrefix(line, "introduction-point ") {
 			if current != nil {
 				points = append(points, *current)
 			}
-			current = &IntroPoint{}
-			b64 := strings.TrimPrefix(line, "introduction-point ")
-			ls, err := base64.StdEncoding.DecodeString(b64)
+			ip, err := parseIntroPointHeader(line)
 			if err != nil {
-				// Try without padding.
-				ls, err = base64.RawStdEncoding.DecodeString(b64)
-				if err != nil {
-					return nil, fmt.Errorf("decode link specifiers: %w", err)
-				}
+				return nil, err
 			}
-			current.LinkSpecifiers = ls
-
-		case strings.HasPrefix(line, "onion-key ntor ") && current != nil:
-			keyB64 := strings.TrimPrefix(line, "onion-key ntor ")
-			keyBytes, err := base64.RawStdEncoding.DecodeString(keyB64)
-			if err != nil {
-				keyBytes, err = base64.StdEncoding.DecodeString(keyB64)
-				if err != nil {
-					return nil, fmt.Errorf("decode onion-key: %w", err)
-				}
-			}
-			if len(keyBytes) != 32 {
-				return nil, fmt.Errorf("onion-key has invalid length: got %d, want 32", len(keyBytes))
-			}
-			copy(current.OnionKey[:], keyBytes)
-
-		case strings.HasPrefix(line, "enc-key ntor ") && current != nil:
-			keyB64 := strings.TrimPrefix(line, "enc-key ntor ")
-			keyBytes, err := base64.RawStdEncoding.DecodeString(keyB64)
-			if err != nil {
-				keyBytes, err = base64.StdEncoding.DecodeString(keyB64)
-				if err != nil {
-					return nil, fmt.Errorf("decode enc-key: %w", err)
-				}
-			}
-			if len(keyBytes) != 32 {
-				return nil, fmt.Errorf("enc-key has invalid length: got %d, want 32", len(keyBytes))
-			}
-			copy(current.EncKey[:], keyBytes)
-
-		case line == "auth-key" && current != nil:
-			cert, end := extractCert(lines, i+1)
-			if cert != nil {
-				current.AuthKeyCert = cert
-				// Extract the 32-byte Ed25519 key from the cert.
-				// Cert format: version(1) | type(1) | expiration(4) | key_type(1) | certified_key(32) | ...
-				if len(cert) >= 39 {
-					copy(current.AuthKey[:], cert[7:39])
-				}
-				i = end
-			}
-
-		case line == "enc-key-cert" && current != nil:
-			cert, end := extractCert(lines, i+1)
-			if cert != nil {
-				current.EncKeyCert = cert
-				i = end
-			}
+			current = ip
+			continue
 		}
+
+		if current == nil {
+			continue
+		}
+
+		newI, err := parseIntroPointLine(current, lines, i, line)
+		if err != nil {
+			return nil, err
+		}
+		i = newI
 	}
 
 	if current != nil {
@@ -241,6 +198,67 @@ func parseIntroPoints(text string) ([]IntroPoint, error) {
 	}
 
 	return points, nil
+}
+
+func parseIntroPointLine(ip *IntroPoint, lines []string, i int, line string) (int, error) {
+	switch {
+	case strings.HasPrefix(line, "onion-key ntor "):
+		key, err := decodeKey32(strings.TrimPrefix(line, "onion-key ntor "), "onion-key")
+		if err != nil {
+			return i, err
+		}
+		ip.OnionKey = key
+	case strings.HasPrefix(line, "enc-key ntor "):
+		key, err := decodeKey32(strings.TrimPrefix(line, "enc-key ntor "), "enc-key")
+		if err != nil {
+			return i, err
+		}
+		ip.EncKey = key
+	case line == "auth-key":
+		cert, end := extractCert(lines, i+1)
+		if cert != nil {
+			ip.AuthKeyCert = cert
+			if len(cert) >= 39 {
+				copy(ip.AuthKey[:], cert[7:39])
+			}
+			i = end
+		}
+	case line == "enc-key-cert":
+		cert, end := extractCert(lines, i+1)
+		if cert != nil {
+			ip.EncKeyCert = cert
+			i = end
+		}
+	}
+	return i, nil
+}
+
+func parseIntroPointHeader(line string) (*IntroPoint, error) {
+	b64 := strings.TrimPrefix(line, "introduction-point ")
+	ls, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		ls, err = base64.RawStdEncoding.DecodeString(b64)
+		if err != nil {
+			return nil, fmt.Errorf("decode link specifiers: %w", err)
+		}
+	}
+	return &IntroPoint{LinkSpecifiers: ls}, nil
+}
+
+func decodeKey32(b64, name string) ([32]byte, error) {
+	var key [32]byte
+	keyBytes, err := base64.RawStdEncoding.DecodeString(b64)
+	if err != nil {
+		keyBytes, err = base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return key, fmt.Errorf("decode %s: %w", name, err)
+		}
+	}
+	if len(keyBytes) != 32 {
+		return key, fmt.Errorf("%s has invalid length: got %d, want 32", name, len(keyBytes))
+	}
+	copy(key[:], keyBytes)
+	return key, nil
 }
 
 // extractCert extracts a PEM-like certificate block starting at the given line index.

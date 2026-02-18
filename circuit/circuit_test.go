@@ -112,7 +112,7 @@ func TestCipherStreamPersistence(t *testing.T) {
 
 func TestRelayEarlyBudget(t *testing.T) {
 	circ := &Circuit{
-		ID:   0x80000001,
+		ID:             0x80000001,
 		RelayEarlySent: 0,
 	}
 	// Budget should be 8

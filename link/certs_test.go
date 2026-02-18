@@ -200,8 +200,8 @@ func TestParseTorCertRejectsUnrecognizedCriticalExtension(t *testing.T) {
 	var extLenBuf [2]byte
 	binary.BigEndian.PutUint16(extLenBuf[:], 4) // 4 bytes of data
 	buf = append(buf, extLenBuf[:]...)
-	buf = append(buf, 0xFF) // ExtType = unknown
-	buf = append(buf, 0x01) // ExtFlags = AFFECTS_VALIDATION
+	buf = append(buf, 0xFF)                   // ExtType = unknown
+	buf = append(buf, 0x01)                   // ExtFlags = AFFECTS_VALIDATION
 	buf = append(buf, 0xDE, 0xAD, 0xBE, 0xEF) // ExtData
 	sig := ed25519.Sign(privKey, buf)
 	buf = append(buf, sig...)

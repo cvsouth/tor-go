@@ -23,56 +23,73 @@ import (
 )
 
 func main() {
+	logger, logFile := setupLogging()
+	defer logFile.Close()
+
+	fmt.Println("=== Daphne Tor Client ===")
+	fmt.Println()
+
+	cache := &directory.Cache{Dir: directory.DefaultCacheDir()}
+	consensusText := loadOrFetchConsensus(cache)
+	keyCerts := loadOrFetchKeyCerts(cache, logger)
+	consensus := validateAndParseConsensus(consensusText, keyCerts, cache, logger)
+	populateMicrodescriptors(consensus, cache, logger)
+
+	fmt.Println("\nSelecting path and building circuit...")
+	circ, circLink := buildInitialCircuit(consensus, logger)
+
+	runSOCKSProxy(consensus, circ, circLink, logger)
+}
+
+func setupLogging() (*slog.Logger, *os.File) {
 	logFile, err := os.OpenFile("tor-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create log file: %v\n", err)
 		os.Exit(1)
 	}
-	defer logFile.Close()
-
 	fileHandler := slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug})
 	stdoutHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
 	logger := slog.New(&multiHandler{handlers: []slog.Handler{fileHandler, stdoutHandler}})
+	return logger, logFile
+}
 
-	fmt.Println("=== Daphne Tor Client ===")
-	fmt.Println()
-
-	// Step 1: Load or fetch consensus
-	cache := &directory.Cache{Dir: directory.DefaultCacheDir()}
-	var consensusText string
+func loadOrFetchConsensus(cache *directory.Cache) string {
 	if text, ok := cache.LoadConsensus(); ok {
 		fmt.Println("Loaded consensus from cache")
-		consensusText = text
-	} else {
-		fmt.Println("Fetching consensus from directory authorities...")
-		consensusText, err = directory.FetchConsensus()
-		if err != nil {
-			fmt.Printf("  Failed: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("  Fetched consensus (%d bytes)\n", len(consensusText))
+		return text
 	}
+	fmt.Println("Fetching consensus from directory authorities...")
+	text, err := directory.FetchConsensus()
+	if err != nil {
+		fmt.Printf("  Failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("  Fetched consensus (%d bytes)\n", len(text))
+	return text
+}
 
-	// Step 2: Fetch authority key certificates and validate consensus signatures
-	keyCerts, keyCertErr := cache.LoadKeyCerts()
-	if keyCertErr != nil || len(keyCerts) == 0 {
-		fmt.Println("Fetching authority key certificates...")
-		keyCerts, keyCertErr = directory.FetchKeyCerts()
-		if keyCertErr != nil {
-			fmt.Printf("  Warning: failed to fetch key certificates: %v\n", keyCertErr)
-			fmt.Println("  Falling back to structural signature validation")
-			keyCerts = nil
-		} else {
-			fmt.Printf("  Fetched %d authority key certificates\n", len(keyCerts))
-			if err := cache.SaveKeyCerts(keyCerts); err != nil {
-				logger.Warn("failed to cache key certs", "error", err)
-			}
-		}
-	} else {
+func loadOrFetchKeyCerts(cache *directory.Cache, logger *slog.Logger) []directory.KeyCert {
+	keyCerts, err := cache.LoadKeyCerts()
+	if err == nil && len(keyCerts) > 0 {
 		fmt.Printf("Loaded %d authority key certificates from cache\n", len(keyCerts))
+		return keyCerts
 	}
+	fmt.Println("Fetching authority key certificates...")
+	keyCerts, err = directory.FetchKeyCerts()
+	if err != nil {
+		fmt.Printf("  Warning: failed to fetch key certificates: %v\n", err)
+		fmt.Println("  Falling back to structural signature validation")
+		return nil
+	}
+	fmt.Printf("  Fetched %d authority key certificates\n", len(keyCerts))
+	if err := cache.SaveKeyCerts(keyCerts); err != nil {
+		logger.Warn("failed to cache key certs", "error", err)
+	}
+	return keyCerts
+}
 
-	if err := directory.ValidateSignatures(consensusText, keyCerts); err != nil {
+func validateAndParseConsensus(text string, keyCerts []directory.KeyCert, cache *directory.Cache, logger *slog.Logger) *directory.Consensus {
+	if err := directory.ValidateSignatures(text, keyCerts); err != nil {
 		fmt.Printf("  Signature validation failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -82,7 +99,7 @@ func main() {
 		fmt.Println("  Consensus structurally validated (≥5 authority signatures)")
 	}
 
-	consensus, err := directory.ParseConsensus(consensusText)
+	consensus, err := directory.ParseConsensus(text)
 	if err != nil {
 		fmt.Printf("  Parse failed: %v\n", err)
 		os.Exit(1)
@@ -93,13 +110,13 @@ func main() {
 		fmt.Printf("  Consensus validation failed: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Cache the consensus for next startup
-	if err := cache.SaveConsensus(consensusText, consensus.FreshUntil, consensus.ValidUntil); err != nil {
+	if err := cache.SaveConsensus(text, consensus.FreshUntil, consensus.ValidUntil); err != nil {
 		logger.Warn("failed to cache consensus", "error", err)
 	}
+	return consensus
+}
 
-	// Step 3: Fetch microdescriptors for relays with useful flags
+func populateMicrodescriptors(consensus *directory.Consensus, cache *directory.Cache, logger *slog.Logger) {
 	fmt.Println("Fetching microdescriptors...")
 	var usefulRelays []directory.Relay
 	for _, r := range consensus.Relays {
@@ -109,124 +126,105 @@ func main() {
 	}
 	fmt.Printf("  %d relays with useful flags\n", len(usefulRelays))
 
-	// Try loading microdescriptors from cache first
 	cachedCount := cache.LoadMicrodescriptors(usefulRelays)
 	if cachedCount > 0 {
 		fmt.Printf("  Loaded %d relays from microdescriptor cache\n", cachedCount)
 	}
 
-	// Count how many still need ntor keys
+	fetchMissingMicrodescriptors(usefulRelays, logger)
+
+	ntorCount := countNtorKeys(usefulRelays)
+	fmt.Printf("  %d relays with ntor keys\n", ntorCount)
+
+	if err := cache.SaveMicrodescriptors(usefulRelays); err != nil {
+		logger.Warn("failed to cache microdescriptors", "error", err)
+	}
+	consensus.Relays = usefulRelays
+}
+
+func fetchMissingMicrodescriptors(relays []directory.Relay, logger *slog.Logger) {
 	needFetch := 0
-	for _, r := range usefulRelays {
+	for _, r := range relays {
 		if !r.HasNtorKey {
 			needFetch++
 		}
 	}
-
-	if needFetch > 0 {
-		fmt.Printf("  Fetching microdescriptors for %d relays...\n", needFetch)
-		for _, addr := range directory.DirAuthorities {
-			err = directory.UpdateRelaysWithMicrodescriptors(addr, usefulRelays)
-			if err == nil {
-				break
-			}
-			logger.Warn("microdesc fetch failed", "addr", addr, "error", err)
-		}
+	if needFetch == 0 {
+		return
 	}
+	fmt.Printf("  Fetching microdescriptors for %d relays...\n", needFetch)
+	for _, addr := range directory.DirAuthorities {
+		if directory.UpdateRelaysWithMicrodescriptors(addr, relays) == nil {
+			break
+		}
+		logger.Warn("microdesc fetch failed", "addr", addr)
+	}
+}
 
-	// Count how many have ntor keys
-	ntorCount := 0
-	for _, r := range usefulRelays {
+func countNtorKeys(relays []directory.Relay) int {
+	count := 0
+	for _, r := range relays {
 		if r.HasNtorKey {
-			ntorCount++
+			count++
 		}
 	}
-	fmt.Printf("  %d relays with ntor keys\n", ntorCount)
+	return count
+}
 
-	// Cache microdescriptors for next startup
-	if err := cache.SaveMicrodescriptors(usefulRelays); err != nil {
-		logger.Warn("failed to cache microdescriptors", "error", err)
-	}
-
-	// Update the consensus relays with the fetched data
-	consensus.Relays = usefulRelays
-
-	// Step 4: Build circuit using path selection
-	fmt.Println("\nSelecting path and building circuit...")
-
-	var circ *circuit.Circuit
-	var circLink *link.Link
-	var mu sync.Mutex
-
+func buildInitialCircuit(consensus *directory.Consensus, logger *slog.Logger) (*circuit.Circuit, *link.Link) {
 	for attempt := 0; attempt < 3; attempt++ {
-		path, err := pathselect.SelectPath(consensus)
+		circ, l, err := tryBuildInitialCircuit(consensus, logger)
 		if err != nil {
-			fmt.Printf("  Path selection failed: %v\n", err)
+			fmt.Printf("  Attempt %d failed: %v\n", attempt, err)
 			continue
 		}
-		fmt.Printf("  Path: %s → %s → %s\n", path.Guard.Nickname, path.Middle.Nickname, path.Exit.Nickname)
-		fmt.Printf("  Guard: %s:%d\n", path.Guard.Address, path.Guard.ORPort)
-
-		// Connect to guard
-		l, err := link.Handshake(fmt.Sprintf("%s:%d", path.Guard.Address, path.Guard.ORPort), logger)
-		if err != nil {
-			fmt.Printf("  Guard connection failed: %v\n", err)
-			continue
-		}
-
-		// Build relay info from consensus data for guard
-		guardInfo := relayInfoFromConsensus(&path.Guard)
-
-		// Create circuit to guard
-		l.SetDeadline(time.Now().Add(30 * time.Second))
-		circ, err = circuit.Create(l, guardInfo, logger)
-		if err != nil {
-			l.Close()
-			fmt.Printf("  Circuit create failed: %v\n", err)
-			continue
-		}
-
-		// Extend to middle
-		middleInfo := relayInfoFromConsensus(&path.Middle)
-		if err := circ.Extend(middleInfo, logger); err != nil {
-			l.Close()
-			fmt.Printf("  Extend to middle failed: %v\n", err)
-			circ = nil
-			continue
-		}
-
-		// Extend to exit
-		exitInfo := relayInfoFromConsensus(&path.Exit)
-		if err := circ.Extend(exitInfo, logger); err != nil {
-			l.Close()
-			fmt.Printf("  Extend to exit failed: %v\n", err)
-			circ = nil
-			continue
-		}
-
-		l.SetDeadline(time.Time{})
-		circLink = l
 		fmt.Printf("  3-hop circuit built! (ID: 0x%08x)\n", circ.ID)
-		break
+		return circ, l
+	}
+	fmt.Println("\nFailed to build circuit after 3 attempts.")
+	os.Exit(1)
+	return nil, nil
+}
+
+func tryBuildInitialCircuit(consensus *directory.Consensus, logger *slog.Logger) (*circuit.Circuit, *link.Link, error) {
+	path, err := pathselect.SelectPath(consensus)
+	if err != nil {
+		return nil, nil, fmt.Errorf("path selection: %w", err)
+	}
+	fmt.Printf("  Path: %s → %s → %s\n", path.Guard.Nickname, path.Middle.Nickname, path.Exit.Nickname)
+
+	l, err := link.Handshake(fmt.Sprintf("%s:%d", path.Guard.Address, path.Guard.ORPort), logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("guard connection: %w", err)
 	}
 
-	if circ == nil {
-		fmt.Println("\nFailed to build circuit after 3 attempts.")
-		os.Exit(1)
+	l.SetDeadline(time.Now().Add(30 * time.Second))
+	circ, err := circuit.Create(l, relayInfoFromConsensus(&path.Guard), logger)
+	if err != nil {
+		l.Close()
+		return nil, nil, fmt.Errorf("circuit create: %w", err)
 	}
 
-	// Step 5: Start SOCKS5 proxy
+	if err := circ.Extend(relayInfoFromConsensus(&path.Middle), logger); err != nil {
+		l.Close()
+		return nil, nil, fmt.Errorf("extend to middle: %w", err)
+	}
+
+	if err := circ.Extend(relayInfoFromConsensus(&path.Exit), logger); err != nil {
+		l.Close()
+		return nil, nil, fmt.Errorf("extend to exit: %w", err)
+	}
+
+	l.SetDeadline(time.Time{})
+	return circ, l, nil
+}
+
+func runSOCKSProxy(consensus *directory.Consensus, circ *circuit.Circuit, circLink *link.Link, logger *slog.Logger) {
+	var mu sync.Mutex
 	socksAddr := "127.0.0.1:9050"
 	fmt.Printf("\nStarting SOCKS5 proxy on %s...\n", socksAddr)
 
-	// Create circuit builder for onion service connections.
-	cb := &circuitBuilder{
-		consensus: consensus,
-		logger:    logger,
-	}
-
-	// Create HTTP client for descriptor fetches.
-	// HSDirs serve descriptors on their DirPort via HTTP.
+	cb := &circuitBuilder{consensus: consensus, logger: logger}
 	hsHTTPClient := &http.Client{
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
@@ -251,7 +249,6 @@ func main() {
 		},
 	}
 
-	// Handle graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 

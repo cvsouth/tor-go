@@ -13,11 +13,11 @@ import (
 
 // RelayInfo contains the parsed relay descriptor fields needed for ntor handshake.
 type RelayInfo struct {
-	NodeID      [20]byte // SHA-1 of relay's RSA identity key
+	NodeID       [20]byte // SHA-1 of relay's RSA identity key
 	NtorOnionKey [32]byte // Curve25519 public key
-	Address     string   // IP address
-	ORPort      uint16   // OR port
-	Fingerprint string   // Hex fingerprint string (uppercase, no spaces)
+	Address      string   // IP address
+	ORPort       uint16   // OR port
+	Fingerprint  string   // Hex fingerprint string (uppercase, no spaces)
 }
 
 // FetchDescriptor fetches a relay's server descriptor from a Tor directory authority

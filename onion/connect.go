@@ -35,13 +35,11 @@ type ConnectResult struct {
 //   - httpClient: HTTP client for fetching the descriptor (can be nil if builder is provided)
 //   - builder: optional circuit builder for BEGIN_DIR fetch (used when DirPort=0)
 func ResolveOnionService(address string, consensus *directory.Consensus, httpClient *http.Client, builder ...CircuitBuilder) (*ConnectResult, error) {
-	// 1. Decode the .onion address to get the identity public key.
 	pubkey, err := DecodeOnion(address)
 	if err != nil {
 		return nil, fmt.Errorf("decode .onion address: %w", err)
 	}
 
-	// 2. Compute the current time period and blinded key.
 	periodLength := int64(defaultTimePeriodLength)
 	periodNum := TimePeriod(consensus.ValidAfter, periodLength)
 
@@ -50,10 +48,8 @@ func ResolveOnionService(address string, consensus *directory.Consensus, httpCli
 		return nil, fmt.Errorf("blind public key: %w", err)
 	}
 
-	// 3. Compute subcredential.
 	subcred := Subcredential(pubkey, blindedKey)
 
-	// 4. Select the SRV and find HSDirs.
 	srv, err := GetSRVForClient(consensus)
 	if err != nil {
 		return nil, fmt.Errorf("get SRV: %w", err)
@@ -64,62 +60,21 @@ func ResolveOnionService(address string, consensus *directory.Consensus, httpCli
 		return nil, fmt.Errorf("select HSDirs: %w", err)
 	}
 
-	// 5. Fetch descriptor from HSDirs (try each until success).
 	var cb CircuitBuilder
 	if len(builder) > 0 {
 		cb = builder[0]
 	}
 
-	var descriptorText string
-	var lastErr error
-	for _, hsdir := range hsdirs {
-		var text string
-		var fetchErr error
-
-		if hsdir.DirPort > 0 && httpClient != nil {
-			// Direct HTTP to DirPort.
-			addr := fmt.Sprintf("%s:%d", hsdir.Address, hsdir.DirPort)
-			text, fetchErr = FetchDescriptor(httpClient, addr, blindedKey)
-		} else if cb != nil {
-			// Use BEGIN_DIR over a circuit to the HSDir.
-			hsdirInfo := &descriptor.RelayInfo{
-				NodeID:       hsdir.Identity,
-				NtorOnionKey: hsdir.NtorOnionKey,
-				Address:      hsdir.Address,
-				ORPort:       hsdir.ORPort,
-			}
-			built, buildErr := cb.BuildCircuit(hsdirInfo)
-			if buildErr != nil {
-				fetchErr = fmt.Errorf("build circuit to HSDir: %w", buildErr)
-			} else {
-				text, fetchErr = FetchDescriptorViaCircuit(built.Circuit, blindedKey)
-				built.LinkCloser.Close()
-			}
-		} else {
-			continue // No way to fetch from this HSDir
-		}
-
-		if fetchErr != nil {
-			lastErr = fetchErr
-			continue
-		}
-		descriptorText = text
-		break
-	}
-	if descriptorText == "" {
-		if lastErr == nil {
-			lastErr = fmt.Errorf("no reachable HSDirs (all have DirPort=0 and no circuit builder)")
-		}
-		return nil, fmt.Errorf("failed to fetch descriptor from all HSDirs: %w", lastErr)
+	descriptorText, err := fetchDescriptorFromHSDirs(hsdirs, blindedKey, httpClient, cb)
+	if err != nil {
+		return nil, err
 	}
 
-	// 6. Parse outer descriptor.
 	outer, err := ParseDescriptorOuter(descriptorText)
 	if err != nil {
 		return nil, fmt.Errorf("parse descriptor: %w", err)
 	}
 
-	// 7. Decrypt and parse introduction points.
 	introPoints, err := DecryptAndParseDescriptor(outer, blindedKey, subcred)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt descriptor: %w", err)
@@ -135,6 +90,46 @@ func ResolveOnionService(address string, consensus *directory.Consensus, httpCli
 		Subcred:     subcred,
 		Descriptor:  outer,
 	}, nil
+}
+
+func fetchDescriptorFromHSDirs(hsdirs []*directory.Relay, blindedKey [32]byte, httpClient *http.Client, cb CircuitBuilder) (string, error) {
+	var lastErr error
+	for _, hsdir := range hsdirs {
+		text, err := fetchFromHSDir(hsdir, blindedKey, httpClient, cb)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if text != "" {
+			return text, nil
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no reachable HSDirs (all have DirPort=0 and no circuit builder)")
+	}
+	return "", fmt.Errorf("failed to fetch descriptor from all HSDirs: %w", lastErr)
+}
+
+func fetchFromHSDir(hsdir *directory.Relay, blindedKey [32]byte, httpClient *http.Client, cb CircuitBuilder) (string, error) {
+	if hsdir.DirPort > 0 && httpClient != nil {
+		addr := fmt.Sprintf("%s:%d", hsdir.Address, hsdir.DirPort)
+		return FetchDescriptor(httpClient, addr, blindedKey)
+	}
+	if cb != nil {
+		hsdirInfo := &descriptor.RelayInfo{
+			NodeID:       hsdir.Identity,
+			NtorOnionKey: hsdir.NtorOnionKey,
+			Address:      hsdir.Address,
+			ORPort:       hsdir.ORPort,
+		}
+		built, err := cb.BuildCircuit(hsdirInfo)
+		if err != nil {
+			return "", fmt.Errorf("build circuit to HSDir: %w", err)
+		}
+		defer built.LinkCloser.Close()
+		return FetchDescriptorViaCircuit(built.Circuit, blindedKey)
+	}
+	return "", nil // No way to fetch from this HSDir
 }
 
 // IsOnionAddress returns true if the target address is a .onion address.
@@ -163,7 +158,7 @@ func CurrentTimePeriod() int64 {
 // needed for the onion service protocol.
 type BuiltCircuit struct {
 	Circuit    *circuit.Circuit
-	LinkCloser io.Closer          // Closes the underlying TLS link
+	LinkCloser io.Closer             // Closes the underlying TLS link
 	LastHop    *descriptor.RelayInfo // Info about the last relay in the circuit
 }
 

@@ -12,11 +12,11 @@ import (
 
 // Relay cell command constants (tor-spec §6.1).
 const (
-	RelayBegin     uint8 = 1
-	RelayData      uint8 = 2
-	RelayEnd       uint8 = 3
-	RelayConnected uint8 = 4
-	RelaySendMe    uint8 = 5
+	RelayBegin                 uint8 = 1
+	RelayData                  uint8 = 2
+	RelayEnd                   uint8 = 3
+	RelayConnected             uint8 = 4
+	RelaySendMe                uint8 = 5
 	RelayBeginDir              uint8 = 13
 	RelayExtend2               uint8 = 14
 	RelayExtended2             uint8 = 15

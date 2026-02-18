@@ -16,9 +16,9 @@ import (
 // KeyCert represents a parsed directory authority key certificate.
 type KeyCert struct {
 	IdentityFingerprint string         // SHA-1 of identity key DER, uppercase hex
-	SigningKeyDigest     string         // SHA-1 of signing key DER, uppercase hex
-	SigningKey           *rsa.PublicKey  // The medium-term signing key
-	Expires             time.Time       // dir-key-expires
+	SigningKeyDigest    string         // SHA-1 of signing key DER, uppercase hex
+	SigningKey          *rsa.PublicKey // The medium-term signing key
+	Expires             time.Time      // dir-key-expires
 }
 
 // FetchKeyCerts fetches authority key certificates from directory authorities.
@@ -114,89 +114,89 @@ func splitCertBlocks(text string) []string {
 }
 
 func parseOneKeyCert(block string, now time.Time) (*KeyCert, error) {
-	var fingerprint string
-	var expires time.Time
-	var signingKeyPEM string
-	var identityKeyPEM string
+	fields := extractKeyCertFields(block)
 
+	if fields.fingerprint == "" {
+		return nil, fmt.Errorf("missing fingerprint")
+	}
+	if !dirAuthorityFingerprints[fields.fingerprint] {
+		return nil, fmt.Errorf("unknown authority: %s", fields.fingerprint)
+	}
+
+	if err := verifyIdentityFingerprint(fields.identityKeyPEM, fields.fingerprint); err != nil {
+		return nil, err
+	}
+
+	if !fields.expires.IsZero() && now.After(fields.expires) {
+		return nil, fmt.Errorf("expired cert for %s", fields.fingerprint)
+	}
+
+	return parseSigningKey(fields)
+}
+
+type keyCertFields struct {
+	fingerprint    string
+	expires        time.Time
+	signingKeyPEM  string
+	identityKeyPEM string
+}
+
+func extractKeyCertFields(block string) keyCertFields {
+	var f keyCertFields
 	lines := strings.Split(block, "\n")
 	for i, line := range lines {
 		line = strings.TrimRight(line, "\r")
-
 		switch {
 		case strings.HasPrefix(line, "fingerprint "):
-			fingerprint = strings.ToUpper(strings.TrimSpace(line[len("fingerprint "):]))
-
+			f.fingerprint = strings.ToUpper(strings.TrimSpace(line[len("fingerprint "):]))
 		case strings.HasPrefix(line, "dir-key-expires "):
 			t, err := time.Parse("2006-01-02 15:04:05", strings.TrimSpace(line[len("dir-key-expires "):]))
-			if err != nil {
-				return nil, fmt.Errorf("parse dir-key-expires: %w", err)
+			if err == nil {
+				f.expires = t
 			}
-			expires = t
-
-		case line == "dir-identity-key":
-			if i+1 < len(lines) {
-				identityKeyPEM = extractPEMBlock(lines[i+1:])
-			}
-
-		case line == "dir-signing-key":
-			if i+1 < len(lines) {
-				signingKeyPEM = extractPEMBlock(lines[i+1:])
-			}
+		case line == "dir-identity-key" && i+1 < len(lines):
+			f.identityKeyPEM = extractPEMBlock(lines[i+1:])
+		case line == "dir-signing-key" && i+1 < len(lines):
+			f.signingKeyPEM = extractPEMBlock(lines[i+1:])
 		}
 	}
+	return f
+}
 
-	if fingerprint == "" {
-		return nil, fmt.Errorf("missing fingerprint")
+func verifyIdentityFingerprint(identityKeyPEM, fingerprint string) error {
+	if identityKeyPEM == "" {
+		return nil
 	}
-
-	// Filter: only known authorities
-	if !dirAuthorityFingerprints[fingerprint] {
-		return nil, fmt.Errorf("unknown authority: %s", fingerprint)
+	idBlock, _ := pem.Decode([]byte(identityKeyPEM))
+	if idBlock == nil {
+		return nil
 	}
-
-	// Verify identity key fingerprint matches the claimed fingerprint.
-	// This prevents a MITM from injecting a cert with a fake fingerprint.
-	if identityKeyPEM != "" {
-		idBlock, _ := pem.Decode([]byte(identityKeyPEM))
-		if idBlock != nil {
-			idDigest := sha1.Sum(idBlock.Bytes)
-			computedFP := strings.ToUpper(hex.EncodeToString(idDigest[:]))
-			if computedFP != fingerprint {
-				return nil, fmt.Errorf("identity key fingerprint mismatch for %s: computed %s", fingerprint, computedFP)
-			}
-		}
+	idDigest := sha1.Sum(idBlock.Bytes)
+	computedFP := strings.ToUpper(hex.EncodeToString(idDigest[:]))
+	if computedFP != fingerprint {
+		return fmt.Errorf("identity key fingerprint mismatch for %s: computed %s", fingerprint, computedFP)
 	}
+	return nil
+}
 
-	// Filter: not expired
-	if !expires.IsZero() && now.After(expires) {
-		return nil, fmt.Errorf("expired cert for %s", fingerprint)
+func parseSigningKey(f keyCertFields) (*KeyCert, error) {
+	if f.signingKeyPEM == "" {
+		return nil, fmt.Errorf("missing signing key for %s", f.fingerprint)
 	}
-
-	if signingKeyPEM == "" {
-		return nil, fmt.Errorf("missing signing key for %s", fingerprint)
-	}
-
-	// Parse the RSA public key
-	pemBlock, _ := pem.Decode([]byte(signingKeyPEM))
+	pemBlock, _ := pem.Decode([]byte(f.signingKeyPEM))
 	if pemBlock == nil {
-		return nil, fmt.Errorf("failed to decode PEM for %s", fingerprint)
+		return nil, fmt.Errorf("failed to decode PEM for %s", f.fingerprint)
 	}
-
 	pubKey, err := x509.ParsePKCS1PublicKey(pemBlock.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("parse signing key for %s: %w", fingerprint, err)
+		return nil, fmt.Errorf("parse signing key for %s: %w", f.fingerprint, err)
 	}
-
-	// Compute signing key digest: SHA1(DER(signing_key))
 	digest := sha1.Sum(pemBlock.Bytes)
-	signingKeyDigest := strings.ToUpper(hex.EncodeToString(digest[:]))
-
 	return &KeyCert{
-		IdentityFingerprint: fingerprint,
-		SigningKeyDigest:     signingKeyDigest,
-		SigningKey:           pubKey,
-		Expires:             expires,
+		IdentityFingerprint: f.fingerprint,
+		SigningKeyDigest:    strings.ToUpper(hex.EncodeToString(digest[:])),
+		SigningKey:          pubKey,
+		Expires:             f.expires,
 	}, nil
 }
 
