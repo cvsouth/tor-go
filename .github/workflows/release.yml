@@ -148,7 +148,7 @@ jobs:
           cyclonedx-gomod app -main cmd/tor-client -json -output release/tor-client.cdx.json .
 
       - name: Generate SLSA provenance attestations
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v2.1.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v2.1.0
         with:
           subject-path: 'release/tor-client-*'
 
