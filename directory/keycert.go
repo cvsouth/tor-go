@@ -93,7 +93,10 @@ func parseOneKeyCert(block string, now time.Time) (*KeyCert, error) {
 		return nil, err
 	}
 
-	if !fields.expires.IsZero() && now.After(fields.expires) {
+	if fields.expires.IsZero() {
+		return nil, fmt.Errorf("missing or unparseable dir-key-expires for %s", fields.fingerprint)
+	}
+	if now.After(fields.expires) {
 		return nil, fmt.Errorf("expired cert for %s", fields.fingerprint)
 	}
 
@@ -131,11 +134,11 @@ func extractKeyCertFields(block string) keyCertFields {
 
 func verifyIdentityFingerprint(identityKeyPEM, fingerprint string) error {
 	if identityKeyPEM == "" {
-		return nil
+		return fmt.Errorf("missing identity key for %s", fingerprint)
 	}
 	idBlock, _ := pem.Decode([]byte(identityKeyPEM))
 	if idBlock == nil {
-		return nil
+		return fmt.Errorf("failed to decode identity key PEM for %s", fingerprint)
 	}
 	idDigest := sha1.Sum(idBlock.Bytes)
 	computedFP := strings.ToUpper(hex.EncodeToString(idDigest[:]))

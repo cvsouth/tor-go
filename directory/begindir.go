@@ -21,6 +21,9 @@ func FetchViaBeginDir(circ *circuit.Circuit, urlPath string, maxResponseBytes in
 	if strings.ContainsAny(urlPath, "\r\n") {
 		return nil, fmt.Errorf("invalid URL path: contains CRLF")
 	}
+	if maxResponseBytes <= 0 {
+		return nil, fmt.Errorf("maxResponseBytes must be positive")
+	}
 	if circ == nil {
 		return nil, fmt.Errorf("circuit is nil")
 	}
@@ -30,12 +33,26 @@ func FetchViaBeginDir(circ *circuit.Circuit, urlPath string, maxResponseBytes in
 	}
 	defer func() { _ = s.Close() }()
 
+	// urlPath is used verbatim — callers are trusted to provide valid URL paths (no encoding is applied).
 	httpReq := fmt.Sprintf("GET %s HTTP/1.0\r\nHost: tor\r\nAccept-Encoding: identity\r\n\r\n", urlPath)
 	if _, err := s.Write([]byte(httpReq)); err != nil {
 		return nil, fmt.Errorf("write HTTP request: %w", err)
 	}
 
-	resp, err := http.ReadResponse(bufio.NewReader(s), nil)
+	return readHTTPResponse(bufio.NewReader(s), urlPath, maxResponseBytes)
+}
+
+// readHTTPResponse reads and validates an HTTP response from r.
+// It uses the stdlib http.ReadResponse for proper HTTP parsing (status codes,
+// chunked transfer encoding, etc.) and limits the body to maxResponseBytes.
+func readHTTPResponse(r *bufio.Reader, urlPath string, maxResponseBytes int) ([]byte, error) {
+	// Defense-in-depth: validate maxResponseBytes here even though FetchViaBeginDir
+	// also checks, because readHTTPResponse may be called by other internal callers
+	// that bypass FetchViaBeginDir.
+	if maxResponseBytes <= 0 {
+		return nil, fmt.Errorf("maxResponseBytes must be positive")
+	}
+	resp, err := http.ReadResponse(r, nil)
 	if err != nil {
 		return nil, fmt.Errorf("read HTTP response: %w", err)
 	}
@@ -45,11 +62,11 @@ func FetchViaBeginDir(circ *circuit.Circuit, urlPath string, maxResponseBytes in
 		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, urlPath)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxResponseBytes)))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxResponseBytes)+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
-	if len(body) >= maxResponseBytes {
+	if len(body) > maxResponseBytes {
 		return nil, fmt.Errorf("response exceeded %d byte limit for %s", maxResponseBytes, urlPath)
 	}
 	return body, nil

@@ -21,17 +21,18 @@ type DirAuthority struct {
 	Ed25519ID   [32]byte // Ed25519 identity key; zero until populated from live consensus/descriptor
 }
 
-// DirAuthorities lists the 9 Tor directory authorities (from C Tor auth_dirs.inc, 2025).
+// DirAuthorities lists the 9 Tor directory authorities (from C Tor auth_dirs.inc, 2026-03).
+// Serge is intentionally excluded: it is a bridge authority (no v3ident), not a directory authority.
 var DirAuthorities = []DirAuthority{
-	newDirAuthority("moria1", "128.31.0.39", 9101, 9131, "F533C81CEF0BC0267857C99B2F471ADF249FA232"),
-	newDirAuthority("tor26", "86.59.21.38", 443, 80, "2F3DF9CA0E5D36F2685A2DA67184EB8DCB8CBA8C"),
-	newDirAuthority("dizum", "194.109.206.212", 443, 80, "E8A9C45EDE6D711294FADF8E7951F4DE6CA56B58"),
-	newDirAuthority("Faravahar", "199.58.81.140", 443, 80, "70849B868D606BAECFB6128C5E3D782029AA394F"),
-	newDirAuthority("longclaw", "204.13.164.118", 443, 80, "23D15D965BC35114467363C165C4F724B64B4F66"),
-	newDirAuthority("bastet", "66.111.2.131", 9001, 9030, "27102BC123E7AF1D4741AE047E160C91ADC76B21"),
+	newDirAuthority("moria1", "128.31.0.39", 9201, 9231, "F533C81CEF0BC0267857C99B2F471ADF249FA232"),
+	newDirAuthority("tor26", "217.196.147.77", 443, 80, "2F3DF9CA0E5D36F2685A2DA67184EB8DCB8CBA8C"),
+	newDirAuthority("dizum", "45.66.35.11", 443, 80, "E8A9C45EDE6D711294FADF8E7951F4DE6CA56B58"),
+	newDirAuthority("gabelmoo", "131.188.40.189", 443, 80, "ED03BB616EB2F60BEC80151114BB25CEF515B226"),
 	newDirAuthority("dannenberg", "193.23.244.244", 443, 80, "0232AF901C31A04EE9848595AF9BB7620D4C5B2E"),
 	newDirAuthority("maatuska", "171.25.193.9", 80, 443, "49015F787433103580E3B66A1707A00E60F2D15B"),
-	newDirAuthority("gabelmoo", "154.35.175.225", 443, 80, "ED03BB616EB2F60BEC80151114BB25CEF515B226"),
+	newDirAuthority("longclaw", "199.58.81.140", 443, 80, "23D15D965BC35114467363C165C4F724B64B4F66"),
+	newDirAuthority("bastet", "204.13.164.118", 443, 80, "27102BC123E7AF1D4741AE047E160C91ADC76B21"),
+	newDirAuthority("faravahar", "216.218.219.41", 443, 80, "70849B868D606BAECFB6128C5E3D782029AA394F"),
 }
 
 func newDirAuthority(nickname, address string, orPort, dirPort uint16, v3ident string) DirAuthority {
@@ -79,6 +80,11 @@ func FetchAuthorityDescriptor(auth *DirAuthority) (*descriptor.RelayInfo, error)
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			DisableCompression: true,
+		},
+		// Directory authorities never redirect; reject redirects to prevent
+		// SSRF via a MITM on the plaintext HTTP connection.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
 	}
 

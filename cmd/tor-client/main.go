@@ -92,14 +92,11 @@ func loadFromCache(cache *directory.Cache) *bootstrapData {
 // and reducing predictability for network observers.
 func fetchFromAuthorities(logger *slog.Logger) *bootstrapData {
 	fmt.Println("Fetching consensus from directory authorities...")
-	auths := make([]directory.DirAuthority, len(directory.DirAuthorities))
-	copy(auths, directory.DirAuthorities)
-	rand.Shuffle(len(auths), func(i, j int) { auths[i], auths[j] = auths[j], auths[i] })
+	auths := shuffleAuthorities()
 	for i := range auths {
-		auth := &auths[i]
-		data, err := bootstrapFromAuthority(auth, logger)
+		data, err := bootstrapFromAuthority(&auths[i], logger)
 		if err != nil {
-			logger.Warn("bootstrap from authority failed", "authority", auth.Nickname, "error", err)
+			logger.Warn("bootstrap from authority failed", "authority", auths[i].Nickname, "error", err)
 			continue
 		}
 		return data
@@ -109,8 +106,22 @@ func fetchFromAuthorities(logger *slog.Logger) *bootstrapData {
 	return nil
 }
 
+// shuffleAuthorities returns a shuffled copy of DirAuthorities to distribute
+// load and reduce predictability for network observers.
+func shuffleAuthorities() []directory.DirAuthority {
+	auths := make([]directory.DirAuthority, len(directory.DirAuthorities))
+	copy(auths, directory.DirAuthorities)
+	rand.Shuffle(len(auths), func(i, j int) { auths[i], auths[j] = auths[j], auths[i] })
+	return auths
+}
+
 // bootstrapFromAuthority fetches consensus and key certs from a single
-// directory authority over one bootstrap circuit.
+// directory authority over one bootstrap circuit. The sequence is:
+// (1) fetch ntor key via FetchAuthorityDescriptor (plaintext HTTP),
+// (2) build 1-hop bootstrap circuit via BootstrapCircuit with identity pinning,
+// (3) fetch consensus via FetchConsensus(circ),
+// (4) fetch key certs via FetchKeyCerts(circ),
+// (5) close bootstrap circuit and link.
 func bootstrapFromAuthority(auth *directory.DirAuthority, logger *slog.Logger) (*bootstrapData, error) {
 	relayInfo, err := directory.FetchAuthorityDescriptor(auth)
 	if err != nil {
@@ -172,12 +183,7 @@ func validateAndParseConsensus(text string, keyCerts []directory.KeyCert, cache 
 
 func populateMicrodescriptors(consensus *directory.Consensus, cache *directory.Cache, logger *slog.Logger) {
 	fmt.Println("Fetching microdescriptors...")
-	var usefulRelays []directory.Relay
-	for _, r := range consensus.Relays {
-		if r.Flags.Running && r.Flags.Valid && (r.Flags.Guard || r.Flags.Exit || r.Flags.Fast || r.Flags.HSDir) {
-			usefulRelays = append(usefulRelays, r)
-		}
-	}
+	usefulRelays := filterUsefulRelays(consensus.Relays)
 	fmt.Printf("  %d relays with useful flags\n", len(usefulRelays))
 
 	cachedCount := cache.LoadMicrodescriptors(usefulRelays)
@@ -196,24 +202,27 @@ func populateMicrodescriptors(consensus *directory.Consensus, cache *directory.C
 	consensus.Relays = usefulRelays
 }
 
-func fetchMissingMicrodescriptors(relays []directory.Relay, logger *slog.Logger) {
-	needFetch := 0
+// filterUsefulRelays returns relays with Running+Valid and at least one useful flag.
+func filterUsefulRelays(relays []directory.Relay) []directory.Relay {
+	var useful []directory.Relay
 	for _, r := range relays {
-		if !r.HasNtorKey {
-			needFetch++
+		if r.Flags.Running && r.Flags.Valid && (r.Flags.Guard || r.Flags.Exit || r.Flags.Fast || r.Flags.HSDir) {
+			useful = append(useful, r)
 		}
 	}
+	return useful
+}
+
+func fetchMissingMicrodescriptors(relays []directory.Relay, logger *slog.Logger) {
+	needFetch := countMissingNtorKeys(relays)
 	if needFetch == 0 {
 		return
 	}
 	fmt.Printf("  Fetching microdescriptors for %d relays...\n", needFetch)
-	auths := make([]directory.DirAuthority, len(directory.DirAuthorities))
-	copy(auths, directory.DirAuthorities)
-	rand.Shuffle(len(auths), func(i, j int) { auths[i], auths[j] = auths[j], auths[i] })
+	auths := shuffleAuthorities()
 	for i := range auths {
-		auth := &auths[i]
-		if err := fetchMicrodescFromAuthority(auth, relays, logger); err != nil {
-			logger.Warn("microdesc fetch from authority failed", "authority", auth.Nickname, "error", err)
+		if err := fetchMicrodescFromAuthority(&auths[i], relays, logger); err != nil {
+			logger.Warn("microdesc fetch from authority failed", "authority", auths[i].Nickname, "error", err)
 			continue
 		}
 		return
@@ -221,6 +230,19 @@ func fetchMissingMicrodescriptors(relays []directory.Relay, logger *slog.Logger)
 	fmt.Println("  Failed to fetch microdescriptors from any authority")
 }
 
+// countMissingNtorKeys returns the number of relays without an ntor key.
+func countMissingNtorKeys(relays []directory.Relay) int {
+	count := 0
+	for _, r := range relays {
+		if !r.HasNtorKey {
+			count++
+		}
+	}
+	return count
+}
+
+// fetchMicrodescFromAuthority builds a bootstrap circuit to the given authority
+// and fetches microdescriptors via UpdateRelaysWithMicrodescriptors.
 func fetchMicrodescFromAuthority(auth *directory.DirAuthority, relays []directory.Relay, logger *slog.Logger) error {
 	relayInfo, err := directory.FetchAuthorityDescriptor(auth)
 	if err != nil {

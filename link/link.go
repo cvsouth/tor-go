@@ -298,11 +298,11 @@ func HandshakeWithPinning(addr string, expectedEd25519 []byte, logger *slog.Logg
 	}
 	logger.Debug("certs validated", "identity", fmt.Sprintf("%x", identityKey[:8]))
 
+	if err := checkPinning(identityKey, expectedEd25519); err != nil {
+		_ = tlsConn.Close()
+		return nil, err
+	}
 	if expectedEd25519 != nil {
-		if subtle.ConstantTimeCompare(identityKey, expectedEd25519) != 1 {
-			_ = tlsConn.Close()
-			return nil, fmt.Errorf("identity pinning failed: expected %x, got %x", expectedEd25519, identityKey)
-		}
 		logger.Debug("identity pinning verified")
 	}
 
@@ -395,6 +395,18 @@ func dialTLS(addr string, logger *slog.Logger) (*tls.Conn, [32]byte, error) {
 	logger.Debug("peer TLS cert hash", "sha256", fmt.Sprintf("%x", peerCertHash))
 
 	return tlsConn, peerCertHash, nil
+}
+
+// checkPinning verifies that actualKey matches expectedKey using constant-time
+// comparison. If expectedKey is nil, the check is skipped (no pinning requested).
+func checkPinning(actualKey, expectedKey []byte) error {
+	if expectedKey == nil {
+		return nil
+	}
+	if subtle.ConstantTimeCompare(actualKey, expectedKey) != 1 {
+		return fmt.Errorf("identity pinning failed: expected %x, got %x", expectedKey, actualKey)
+	}
+	return nil
 }
 
 func negotiateVersion(serverVersions []uint16) uint16 {

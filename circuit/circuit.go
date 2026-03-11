@@ -621,6 +621,24 @@ func NewTestCircuit(id uint32, cr CellReader) *Circuit {
 	}
 }
 
+// StreamCount returns the number of currently registered streams.
+func (c *Circuit) StreamCount() int {
+	c.streamsMu.RLock()
+	defer c.streamsMu.RUnlock()
+	return len(c.streams)
+}
+
+// StreamIDs returns the IDs of all currently registered streams.
+func (c *Circuit) StreamIDs() []uint16 {
+	c.streamsMu.RLock()
+	defer c.streamsMu.RUnlock()
+	ids := make([]uint16, 0, len(c.streams))
+	for id := range c.streams {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // BackwardDigest returns the current backward digest state (for SENDME v1).
 // NOTE: This must be called while the circuit mutex is NOT held (it acquires it).
 // For use in flow control after receiving a relay cell.
