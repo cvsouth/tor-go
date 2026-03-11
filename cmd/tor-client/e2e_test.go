@@ -116,8 +116,9 @@ func buildCircuit(t *testing.T, consensus *directory.Consensus, logger *slog.Log
 			continue
 		}
 
+		l.StartReadLoop()
+
 		guardInfo := relayInfoFromConsensus(&path.Guard)
-		_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 		circ, err := circuit.Create(l, guardInfo, logger)
 		if err != nil {
 			_ = l.Close()
@@ -137,7 +138,7 @@ func buildCircuit(t *testing.T, consensus *directory.Consensus, logger *slog.Log
 			continue
 		}
 
-		_ = l.SetDeadline(time.Time{})
+		circ.StartReadLoop()
 		t.Logf("  Circuit built (ID: 0x%08x)", circ.ID)
 		return circ, l
 	}
@@ -169,7 +170,7 @@ func TestE2EConsensusAndSignatures(t *testing.T) {
 		t.Fatalf("consensus too small: %d bytes", len(text))
 	}
 
-	// Cryptographic verification — the critical test
+	// Cryptographic verification - the critical test
 	if err := directory.ValidateSignatures(text, keyCerts); err != nil {
 		t.Fatalf("ValidateSignatures (crypto): %v", err)
 	}
@@ -345,7 +346,8 @@ func TestE2ECircuitRetry(t *testing.T) {
 			continue
 		}
 
-		_ = l.SetDeadline(time.Now().Add(30 * time.Second))
+		l.StartReadLoop()
+
 		circ, err := circuit.Create(l, relayInfoFromConsensus(&path.Guard), logger)
 		if err != nil {
 			_ = l.Close()
@@ -364,8 +366,6 @@ func TestE2ECircuitRetry(t *testing.T) {
 			t.Logf("  Extend to exit failed: %v", err)
 			continue
 		}
-
-		_ = l.SetDeadline(time.Time{})
 		t.Logf("  Success (ID: 0x%08x)", circ.ID)
 		_ = circ.Destroy()
 		_ = l.Close()

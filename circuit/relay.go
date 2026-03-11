@@ -143,7 +143,7 @@ func (c *Circuit) decryptRelayLocked(incoming cell.Cell) (hopIdx int, relayCmd u
 		computedDigest := hop.db.Sum(nil)
 
 		if subtle.ConstantTimeCompare(savedDigest[:], computedDigest[:4]) == 1 {
-			// Match — extract data
+			// Match - extract data
 			relayCmd = payload[relayCommandOff]
 			streamID = binary.BigEndian.Uint16(payload[relayStreamIDOff:])
 			dataLen := binary.BigEndian.Uint16(payload[relayLengthOff:])
@@ -155,7 +155,7 @@ func (c *Circuit) decryptRelayLocked(incoming cell.Cell) (hopIdx int, relayCmd u
 			return i, relayCmd, streamID, data, nil
 		}
 
-		// False recognized==0 — restore Db state and continue
+		// False recognized==0 - restore Db state and continue
 		if err := hop.db.(encoding.BinaryUnmarshaler).UnmarshalBinary(dbState); err != nil {
 			return 0, 0, 0, nil, fmt.Errorf("restore digest state: %w", err)
 		}

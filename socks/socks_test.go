@@ -279,7 +279,7 @@ func TestHandleConnFullFlow(t *testing.T) {
 	defer func() { _ = client.Close() }()
 
 	s := &Server{
-		GetCirc: func() (*circuit.Circuit, error) {
+		GetCirc: func(_ string) (*circuit.Circuit, error) {
 			return nil, fmt.Errorf("no circuit available")
 		},
 		Logger: slog.Default(),

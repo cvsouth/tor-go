@@ -127,6 +127,7 @@ func fetchFromHSDir(hsdir *directory.Relay, blindedKey [32]byte, httpClient *htt
 			return "", fmt.Errorf("build circuit to HSDir: %w", err)
 		}
 		defer func() { _ = built.LinkCloser.Close() }()
+		built.Circuit.StartReadLoop()
 		return FetchDescriptorViaCircuit(built.Circuit, blindedKey)
 	}
 	return "", nil // No way to fetch from this HSDir
@@ -213,7 +214,7 @@ func ConnectOnionService(
 	}
 
 	// 4. Wait for RENDEZVOUS_ESTABLISHED.
-	_, relayCmd, _, _, err := rendBuilt.Circuit.ReceiveRelay()
+	_, relayCmd, _, _, err := rendBuilt.Circuit.ReceiveRelaySetup()
 	if err != nil {
 		_ = rendBuilt.LinkCloser.Close()
 		return nil, fmt.Errorf("receive RENDEZVOUS_ESTABLISHED: %w", err)
@@ -229,7 +230,7 @@ func ConnectOnionService(
 		rendBuilt.LastHop.NodeID,
 		rendBuilt.LastHop.Address,
 		rendBuilt.LastHop.ORPort,
-		[32]byte{}, // Ed25519 ID — not always available from consensus
+		[32]byte{}, // Ed25519 ID - not always available from consensus
 	)
 	if err != nil {
 		_ = rendBuilt.LinkCloser.Close()
@@ -248,7 +249,9 @@ func ConnectOnionService(
 			continue
 		}
 
-		// Success — rendezvous circuit now has the onion service virtual hop.
+		// Success - rendezvous circuit now has the onion service virtual hop.
+		// Start the read loop now that all hops (including virtual) are added.
+		rendBuilt.Circuit.StartReadLoop()
 		logger.Info("opening stream to onion service", "port", port)
 		target := fmt.Sprintf("%s:%d", address, port)
 		s, err := stream.Begin(rendBuilt.Circuit, target)
@@ -321,7 +324,7 @@ func tryIntroPoint(
 	}
 
 	// Wait for INTRODUCE_ACK on the intro circuit.
-	_, relayCmd, _, ackData, err := introBuilt.Circuit.ReceiveRelay()
+	_, relayCmd, _, ackData, err := introBuilt.Circuit.ReceiveRelaySetup()
 	if err != nil {
 		return fmt.Errorf("receive INTRODUCE_ACK: %w", err)
 	}
@@ -339,7 +342,7 @@ func tryIntroPoint(
 
 	// Wait for RENDEZVOUS2 on the rendezvous circuit.
 	logger.Info("waiting for RENDEZVOUS2")
-	_, relayCmd, _, rend2Data, err := rendBuilt.Circuit.ReceiveRelay()
+	_, relayCmd, _, rend2Data, err := rendBuilt.Circuit.ReceiveRelaySetup()
 	if err != nil {
 		return fmt.Errorf("receive RENDEZVOUS2: %w", err)
 	}

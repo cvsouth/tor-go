@@ -198,7 +198,7 @@ func weightedRandom(weights []int64) (int, error) {
 	}
 
 	if total <= 0 {
-		// All zero weights — uniform random (unbiased)
+		// All zero weights - uniform random (unbiased)
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(weights))))
 		if err != nil {
 			return 0, fmt.Errorf("crypto/rand: %w", err)

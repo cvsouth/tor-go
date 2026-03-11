@@ -1,8 +1,7 @@
 # Tor-Go
 
-A Tor client implementation in pure Go.
+A complete Tor client implementation written in pure Go.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/cvsouth/tor-go.svg)](https://pkg.go.dev/github.com/cvsouth/tor-go)
 [![Test](https://github.com/cvsouth/tor-go/actions/workflows/test.yml/badge.svg)](https://github.com/cvsouth/tor-go/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cvsouth/tor-go)](https://goreportcard.com/report/github.com/cvsouth/tor-go)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/cvsouth/tor-go/badge)](https://scorecard.dev/viewer/?uri=github.com/cvsouth/tor-go)
@@ -15,7 +14,7 @@ A Tor client implementation in pure Go.
 - SOCKS5 proxy server for transparent traffic routing
 - Directory authority consensus fetching with cryptographic signature validation
 - Bandwidth-weighted relay selection (guard, middle, exit)
-- Minimal dependencies — only `golang.org/x/crypto` and `filippo.io/edwards25519`
+- Minimal dependencies: `golang.org/x/crypto` and `filippo.io/edwards25519`
 
 ## Quick Start
 
@@ -26,6 +25,9 @@ go run github.com/cvsouth/tor-go/cmd/tor-client@latest
 In another terminal:
 
 ```sh
+curl https://check.torproject.org/api/ip
+# {"IsTor":false,"IP":"..."}
+
 curl --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
 # {"IsTor":true,"IP":"..."}
 ```

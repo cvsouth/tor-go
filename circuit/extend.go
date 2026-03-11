@@ -21,9 +21,18 @@ const (
 
 // Extend extends the circuit through an additional relay using EXTEND2/EXTENDED2.
 // The EXTEND2 is sent as a RELAY_EARLY cell (encrypted to the last hop).
+// Extend must NOT be called after StartReadLoop - the read loop owns cell reading.
 func (c *Circuit) Extend(relayInfo *descriptor.RelayInfo, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
+	}
+
+	// Guard: Extend calls receiveRelay directly, which conflicts with the read loop.
+	c.streamsMu.RLock()
+	started := c.readLoopStarted
+	c.streamsMu.RUnlock()
+	if started {
+		return fmt.Errorf("cannot Extend after StartReadLoop has been called")
 	}
 
 	// Validate address before building payload
@@ -67,29 +76,11 @@ func (c *Circuit) Extend(relayInfo *descriptor.RelayInfo, logger *slog.Logger) e
 
 	logger.Debug("sent EXTEND2", "to", relayInfo.Address)
 
-	// Wait for EXTENDED2
-	_, relayCmd, _, data, err := c.ReceiveRelay()
+	// Wait for EXTENDED2 and parse the server handshake data.
+	serverData, err := c.receiveExtended2()
 	if err != nil {
 		return fmt.Errorf("receive EXTENDED2: %w", err)
 	}
-	if relayCmd != RelayExtended2 {
-		return fmt.Errorf("expected EXTENDED2 (15), got relay command %d", relayCmd)
-	}
-
-	// Parse EXTENDED2: HLEN(2) + HDATA(HLEN)
-	if len(data) < 2 {
-		return fmt.Errorf("EXTENDED2 too short: %d bytes", len(data))
-	}
-	hlen := binary.BigEndian.Uint16(data[0:2])
-	if hlen != 64 {
-		return fmt.Errorf("EXTENDED2 HLEN=%d, expected 64", hlen)
-	}
-	if len(data) < 2+int(hlen) {
-		return fmt.Errorf("EXTENDED2 truncated: %d bytes, need %d", len(data), 2+hlen)
-	}
-
-	var serverData [64]byte
-	copy(serverData[:], data[2:66])
 
 	// Complete ntor handshake for the new hop
 	km, err := hs.Complete(serverData)
@@ -115,6 +106,32 @@ func (c *Circuit) Extend(relayInfo *descriptor.RelayInfo, logger *slog.Logger) e
 
 	logger.Info("circuit extended", "hops", len(c.Hops))
 	return nil
+}
+
+// receiveExtended2 waits for an EXTENDED2 relay cell and returns the 64-byte
+// server handshake data, or an error if the response is invalid or unexpected.
+func (c *Circuit) receiveExtended2() ([64]byte, error) {
+	var serverData [64]byte
+
+	_, relayCmd, _, data, _, err := c.receiveRelay()
+	if err != nil {
+		return serverData, fmt.Errorf("receive: %w", err)
+	}
+	if relayCmd != RelayExtended2 {
+		return serverData, fmt.Errorf("expected EXTENDED2 (15), got relay command %d", relayCmd)
+	}
+	if len(data) < 2 {
+		return serverData, fmt.Errorf("EXTENDED2 too short: %d bytes", len(data))
+	}
+	hlen := binary.BigEndian.Uint16(data[0:2])
+	if hlen != 64 {
+		return serverData, fmt.Errorf("EXTENDED2 HLEN=%d, expected 64", hlen)
+	}
+	if len(data) < 2+int(hlen) {
+		return serverData, fmt.Errorf("EXTENDED2 truncated: %d bytes, need %d", len(data), 2+hlen)
+	}
+	copy(serverData[:], data[2:66])
+	return serverData, nil
 }
 
 func buildExtend2Payload(relayInfo *descriptor.RelayInfo, clientData [84]byte) []byte {

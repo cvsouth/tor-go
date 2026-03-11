@@ -24,8 +24,8 @@ type OnionHandler func(onionAddr string, port uint16) (io.ReadWriteCloser, error
 // Server is a SOCKS5 proxy server that routes traffic through Tor circuits.
 type Server struct {
 	Addr         string
-	GetCirc      func() (*circuit.Circuit, error) // Called to get a circuit for each connection
-	OnionHandler OnionHandler                     // Optional handler for .onion addresses
+	GetCirc      func(target string) (*circuit.Circuit, error) // Called to get a circuit for each connection
+	OnionHandler OnionHandler                                  // Optional handler for .onion addresses
 	Logger       *slog.Logger
 	ln           net.Listener
 	sem          chan struct{}
@@ -134,8 +134,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	// Get a Tor circuit
-	circ, err := s.GetCirc()
+	// Get a Tor circuit using the target hostname as origin for isolation.
+	circ, err := s.GetCirc(host)
 	if err != nil {
 		s.Logger.Error("get circuit failed", "error", err)
 		sendReply(conn, 0x01) // General failure
@@ -204,7 +204,7 @@ func (s *Server) doHandshake(conn net.Conn) error {
 		return fmt.Errorf("client does not offer no-auth method")
 	}
 
-	// Send: VER(1) METHOD(1) — no auth (0x00)
+	// Send: VER(1) METHOD(1) - no auth (0x00)
 	_, err := conn.Write([]byte{0x05, 0x00})
 	return err
 }

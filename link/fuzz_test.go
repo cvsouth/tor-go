@@ -15,8 +15,8 @@ func FuzzParseTorCert(f *testing.F) {
 	copy(certifiedKey[:], "test-certified-key-32-bytes!!!!!")
 
 	buf := make([]byte, 0, 140)
-	buf = append(buf, 0x01)     // version
-	buf = append(buf, 0x04)     // cert type
+	buf = append(buf, 0x01) // version
+	buf = append(buf, 0x04) // cert type
 	expHours := uint32(time.Now().Add(365*24*time.Hour).Unix() / 3600)
 	var expBuf [4]byte
 	binary.BigEndian.PutUint32(expBuf[:], expHours)

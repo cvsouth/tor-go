@@ -59,7 +59,7 @@ func parseTorCert(data []byte) (*torCert, error) {
 		if extType == 0x04 && len(extData) == 32 {
 			copy(tc.SigningKey[:], extData)
 		} else if extFlags&0x01 != 0 {
-			// AFFECTS_VALIDATION is set on an unrecognized extension — must reject per cert-spec
+			// AFFECTS_VALIDATION is set on an unrecognized extension - must reject per cert-spec
 			return nil, fmt.Errorf("unrecognized critical extension type 0x%02x", extType)
 		}
 		pos += extLen

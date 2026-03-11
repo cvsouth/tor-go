@@ -136,7 +136,7 @@ func HsNtorClientCompleteHandshake(state *HsNtorClientState, serverPK [32]byte, 
 		return nil, fmt.Errorf("hs-ntor AUTH verification failed")
 	}
 
-	// Zero ephemeral private key — no longer needed after handshake completes.
+	// Zero ephemeral private key - no longer needed after handshake completes.
 	for i := range state.x {
 		state.x[i] = 0
 	}

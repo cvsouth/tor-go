@@ -93,7 +93,7 @@ func testConsensus() *directory.Consensus {
 func TestSelectExit(t *testing.T) {
 	c := testConsensus()
 
-	// Run many selections — should never pick BadExit
+	// Run many selections - should never pick BadExit
 	for i := 0; i < 100; i++ {
 		exit, err := SelectExit(c)
 		if err != nil {

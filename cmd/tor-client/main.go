@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
+	"github.com/cvsouth/tor-go/circpool"
 	"github.com/cvsouth/tor-go/circuit"
 	"github.com/cvsouth/tor-go/descriptor"
 	"github.com/cvsouth/tor-go/directory"
@@ -38,10 +38,12 @@ func main() {
 	consensus := validateAndParseConsensus(consensusText, keyCerts, cache, logger)
 	populateMicrodescriptors(consensus, cache, logger)
 
-	fmt.Println("\nSelecting path and building circuit...")
-	circ, circLink := buildInitialCircuit(consensus, logger)
+	fmt.Println("\nStarting circuit pool...")
+	cb := &circuitBuilder{consensus: consensus, logger: logger}
+	pool := circpool.NewPool(&poolBuilder{cb: cb}, circpool.PoolConfig{Size: 3})
+	assigner := circpool.NewAssigner(pool)
 
-	runSOCKSProxy(consensus, circ, circLink, logger)
+	runSOCKSProxy(consensus, pool, assigner, cb, logger)
 }
 
 func setupLogging() (*slog.Logger, *os.File) {
@@ -174,60 +176,10 @@ func countNtorKeys(relays []directory.Relay) int {
 	return count
 }
 
-func buildInitialCircuit(consensus *directory.Consensus, logger *slog.Logger) (*circuit.Circuit, *link.Link) {
-	for attempt := 0; attempt < 3; attempt++ {
-		circ, l, err := tryBuildInitialCircuit(consensus, logger)
-		if err != nil {
-			fmt.Printf("  Attempt %d failed: %v\n", attempt, err)
-			continue
-		}
-		fmt.Printf("  3-hop circuit built! (ID: 0x%08x)\n", circ.ID)
-		return circ, l
-	}
-	fmt.Println("\nFailed to build circuit after 3 attempts.")
-	os.Exit(1)
-	return nil, nil
-}
-
-func tryBuildInitialCircuit(consensus *directory.Consensus, logger *slog.Logger) (*circuit.Circuit, *link.Link, error) {
-	path, err := pathselect.SelectPath(consensus)
-	if err != nil {
-		return nil, nil, fmt.Errorf("path selection: %w", err)
-	}
-	fmt.Printf("  Path: %s → %s → %s\n", path.Guard.Nickname, path.Middle.Nickname, path.Exit.Nickname)
-
-	l, err := link.Handshake(fmt.Sprintf("%s:%d", path.Guard.Address, path.Guard.ORPort), logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("guard connection: %w", err)
-	}
-
-	_ = l.SetDeadline(time.Now().Add(30 * time.Second))
-	circ, err := circuit.Create(l, relayInfoFromConsensus(&path.Guard), logger)
-	if err != nil {
-		_ = l.Close()
-		return nil, nil, fmt.Errorf("circuit create: %w", err)
-	}
-
-	if err := circ.Extend(relayInfoFromConsensus(&path.Middle), logger); err != nil {
-		_ = l.Close()
-		return nil, nil, fmt.Errorf("extend to middle: %w", err)
-	}
-
-	if err := circ.Extend(relayInfoFromConsensus(&path.Exit), logger); err != nil {
-		_ = l.Close()
-		return nil, nil, fmt.Errorf("extend to exit: %w", err)
-	}
-
-	_ = l.SetDeadline(time.Time{})
-	return circ, l, nil
-}
-
-func runSOCKSProxy(consensus *directory.Consensus, circ *circuit.Circuit, circLink *link.Link, logger *slog.Logger) {
-	var mu sync.Mutex
+func runSOCKSProxy(consensus *directory.Consensus, pool *circpool.Pool, assigner *circpool.Assigner, cb *circuitBuilder, logger *slog.Logger) {
 	socksAddr := "127.0.0.1:9050"
 	fmt.Printf("\nStarting SOCKS5 proxy on %s...\n", socksAddr)
 
-	cb := &circuitBuilder{consensus: consensus, logger: logger}
 	hsHTTPClient := &http.Client{
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
@@ -239,13 +191,8 @@ func runSOCKSProxy(consensus *directory.Consensus, circ *circuit.Circuit, circLi
 	srv := &socks.Server{
 		Addr:   socksAddr,
 		Logger: logger,
-		GetCirc: func() (*circuit.Circuit, error) {
-			mu.Lock()
-			defer mu.Unlock()
-			if circ == nil {
-				return nil, fmt.Errorf("circuit destroyed")
-			}
-			return circ, nil
+		GetCirc: func(target string) (*circuit.Circuit, error) {
+			return assigner.AssignCircuit(target)
 		},
 		OnionHandler: func(onionAddr string, port uint16) (io.ReadWriteCloser, error) {
 			return onion.ConnectOnionService(onionAddr, port, consensus, hsHTTPClient, cb, logger)
@@ -259,11 +206,7 @@ func runSOCKSProxy(consensus *directory.Consensus, circ *circuit.Circuit, circLi
 		<-sigCh
 		fmt.Println("\nShutting down...")
 		_ = srv.Close()
-		mu.Lock()
-		_ = circ.Destroy()
-		circ = nil
-		mu.Unlock()
-		_ = circLink.Close()
+		pool.Close()
 	}()
 
 	fmt.Println("Ready. Use: curl --socks5-hostname 127.0.0.1:9050 http://example.com")
@@ -279,6 +222,20 @@ func relayInfoFromConsensus(relay *directory.Relay) *descriptor.RelayInfo {
 		Address:      relay.Address,
 		ORPort:       relay.ORPort,
 	}
+}
+
+// poolBuilder wraps circuitBuilder to implement circpool.CircuitBuilder.
+// It builds circuits with a random exit (target=nil).
+type poolBuilder struct {
+	cb *circuitBuilder
+}
+
+func (pb *poolBuilder) Build() (*circuit.Circuit, io.Closer, error) {
+	built, err := pb.cb.BuildCircuit(nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return built.Circuit, built.LinkCloser, nil
 }
 
 // circuitBuilder implements onion.CircuitBuilder.
@@ -339,8 +296,9 @@ func (cb *circuitBuilder) tryBuildCircuit(target *descriptor.RelayInfo) (*onion.
 		return nil, fmt.Errorf("guard handshake: %w", err)
 	}
 
+	l.StartReadLoop()
+
 	guardInfo := relayInfoFromConsensus(guard)
-	_ = l.SetDeadline(time.Now().Add(30 * time.Second))
 	c, err := circuit.Create(l, guardInfo, cb.logger)
 	if err != nil {
 		_ = l.Close()
@@ -366,7 +324,7 @@ func (cb *circuitBuilder) tryBuildCircuit(target *descriptor.RelayInfo) (*onion.
 		return nil, fmt.Errorf("extend to last hop: %w", err)
 	}
 
-	_ = l.SetDeadline(time.Time{})
+	c.StartReadLoop()
 	cb.logger.Info("onion circuit built", "circID", fmt.Sprintf("0x%08x", c.ID))
 
 	return &onion.BuiltCircuit{

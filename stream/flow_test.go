@@ -3,6 +3,8 @@ package stream
 import (
 	"encoding/binary"
 	"testing"
+
+	"github.com/cvsouth/tor-go/circuit"
 )
 
 func TestSendMeV1Payload(t *testing.T) {
@@ -11,7 +13,10 @@ func TestSendMeV1Payload(t *testing.T) {
 		digest[i] = byte(i + 0xA0)
 	}
 
-	payload := sendMeV1(digest)
+	payload, err := circuit.SendMeV1(digest)
+	if err != nil {
+		t.Fatalf("SendMeV1: %v", err)
+	}
 
 	// Version byte
 	if payload[0] != 1 {
@@ -37,15 +42,26 @@ func TestSendMeV1Payload(t *testing.T) {
 	}
 }
 
-func TestFlowControlConstants(t *testing.T) {
-	if circSendMeWindow != 100 {
-		t.Fatalf("circSendMeWindow = %d, want 100", circSendMeWindow)
+func TestSendMeV1NilDigest(t *testing.T) {
+	// SendMeV1 must return an error with nil digest.
+	_, err := circuit.SendMeV1(nil)
+	if err == nil {
+		t.Fatal("expected error for nil digest")
 	}
+}
+
+func TestSendMeV1ShortDigest(t *testing.T) {
+	// SendMeV1 must return an error with a digest shorter than 20 bytes.
+	short := []byte{0xAA, 0xBB, 0xCC}
+	_, err := circuit.SendMeV1(short)
+	if err == nil {
+		t.Fatal("expected error for short digest")
+	}
+}
+
+func TestFlowControlConstants(t *testing.T) {
 	if streamSendMeWindow != 50 {
 		t.Fatalf("streamSendMeWindow = %d, want 50", streamSendMeWindow)
-	}
-	if initCircWindow != 1000 {
-		t.Fatalf("initCircWindow = %d, want 1000", initCircWindow)
 	}
 	if initStreamWindow != 500 {
 		t.Fatalf("initStreamWindow = %d, want 500", initStreamWindow)
