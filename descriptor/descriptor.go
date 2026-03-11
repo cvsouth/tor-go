@@ -60,116 +60,159 @@ func ParseDescriptor(text string) (*RelayInfo, error) {
 // maxPEMBytes is the upper bound on accumulated PEM data (8 KB).
 const maxPEMBytes = 8 * 1024
 
+// descriptorParseState holds state accumulated during line-by-line descriptor parsing.
+type descriptorParseState struct {
+	info           *RelayInfo
+	accumState     pemAccumulator
+	signingKeyPEM  strings.Builder
+	signaturePEM   strings.Builder
+	hasRouter      bool
+	hasFingerprint bool
+	hasNtorKey     bool
+	hasSigningKey  bool
+	hasSignature   bool
+}
+
 // parseDescriptorFields parses all descriptor fields using line-by-line iteration,
 // including multi-line PEM blocks for signing-key and router-signature.
 // Returns the parsed RelayInfo, the RSA signing key, its DER bytes, and the signature bytes.
 func parseDescriptorFields(text string) (*RelayInfo, *rsa.PublicKey, []byte, []byte, error) {
-	info := &RelayInfo{}
-	var hasRouter, hasFingerprint, hasNtorKey bool
-
-	// PEM accumulation state
-	var accumState pemAccumulator
-	var signingKeyPEM strings.Builder
-	var signaturePEM strings.Builder
-
-	var hasSigningKey, hasSignature bool
+	s := &descriptorParseState{info: &RelayInfo{}}
 
 	for _, line := range strings.Split(text, "\n") {
-		// When accumulating PEM lines, don't trim — PEM content is already clean
-		switch accumState {
-		case pemSigningKey:
-			signingKeyPEM.WriteString(line)
-			signingKeyPEM.WriteString("\n")
-			if signingKeyPEM.Len() > maxPEMBytes {
-				return nil, nil, nil, nil, fmt.Errorf("signing-key: PEM block exceeds %d bytes", maxPEMBytes)
-			}
-			if strings.TrimRight(line, "\r") == "-----END RSA PUBLIC KEY-----" {
-				accumState = pemNone
-				hasSigningKey = true
-			}
-			continue
-		case pemSignature:
-			signaturePEM.WriteString(line)
-			signaturePEM.WriteString("\n")
-			if signaturePEM.Len() > maxPEMBytes {
-				return nil, nil, nil, nil, fmt.Errorf("router-signature: PEM block exceeds %d bytes", maxPEMBytes)
-			}
-			if strings.TrimRight(line, "\r") == "-----END SIGNATURE-----" {
-				accumState = pemNone
-				hasSignature = true
-			}
-			continue
-		case pemNone:
-			// fall through to normal line parsing
-		}
-
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(trimmed, "router "):
-			if err := parseRouterLine(info, trimmed); err != nil {
-				return nil, nil, nil, nil, err
-			}
-			hasRouter = true
-		case strings.HasPrefix(trimmed, "fingerprint "):
-			if err := parseFingerprintLine(info, trimmed); err != nil {
-				return nil, nil, nil, nil, err
-			}
-			hasFingerprint = true
-		case strings.HasPrefix(trimmed, "ntor-onion-key "):
-			if err := parseNtorKeyLine(info, trimmed); err != nil {
-				return nil, nil, nil, nil, err
-			}
-			hasNtorKey = true
-		case trimmed == "signing-key":
-			accumState = pemSigningKey
-		case trimmed == "router-signature":
-			accumState = pemSignature
+		if err := s.parseLine(line); err != nil {
+			return nil, nil, nil, nil, err
 		}
 	}
 
-	if !hasRouter {
-		return nil, nil, nil, nil, fmt.Errorf("missing router line")
-	}
-	if !hasFingerprint {
-		return nil, nil, nil, nil, fmt.Errorf("missing fingerprint line")
-	}
-	if !hasNtorKey {
-		return nil, nil, nil, nil, fmt.Errorf("missing ntor-onion-key line")
-	}
-	if !hasSigningKey {
-		return nil, nil, nil, nil, fmt.Errorf("signing-key: PEM block not found or incomplete")
-	}
-	if !hasSignature {
-		return nil, nil, nil, nil, fmt.Errorf("router-signature: PEM block not found or incomplete")
+	if err := s.validateRequired(); err != nil {
+		return nil, nil, nil, nil, err
 	}
 
-	// Parse signing-key PEM into *rsa.PublicKey
-	pemBlock, _ := pem.Decode([]byte(signingKeyPEM.String()))
+	signingKey, derBytes, err := parseSigningKeyPEM(s.signingKeyPEM.String())
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	sigBytes, err := parseSignaturePEM(s.signaturePEM.String())
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	return s.info, signingKey, derBytes, sigBytes, nil
+}
+
+// parseLine handles a single line of descriptor text, including PEM accumulation.
+func (s *descriptorParseState) parseLine(line string) error {
+	if s.accumState != pemNone {
+		return s.accumulatePEM(line)
+	}
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(trimmed, "router "):
+		if err := parseRouterLine(s.info, trimmed); err != nil {
+			return err
+		}
+		s.hasRouter = true
+	case strings.HasPrefix(trimmed, "fingerprint "):
+		if err := parseFingerprintLine(s.info, trimmed); err != nil {
+			return err
+		}
+		s.hasFingerprint = true
+	case strings.HasPrefix(trimmed, "ntor-onion-key "):
+		if err := parseNtorKeyLine(s.info, trimmed); err != nil {
+			return err
+		}
+		s.hasNtorKey = true
+	case trimmed == "signing-key":
+		s.accumState = pemSigningKey
+	case trimmed == "router-signature":
+		s.accumState = pemSignature
+	}
+	return nil
+}
+
+// accumulatePEM appends a line to the active PEM block and checks for end markers.
+func (s *descriptorParseState) accumulatePEM(line string) error {
+	var buf *strings.Builder
+	var endMarker string
+	var done *bool
+	switch s.accumState {
+	case pemSigningKey:
+		buf = &s.signingKeyPEM
+		endMarker = "-----END RSA PUBLIC KEY-----"
+		done = &s.hasSigningKey
+	case pemSignature:
+		buf = &s.signaturePEM
+		endMarker = "-----END SIGNATURE-----"
+		done = &s.hasSignature
+	default:
+		return nil
+	}
+	buf.WriteString(line)
+	buf.WriteString("\n")
+	if buf.Len() > maxPEMBytes {
+		return fmt.Errorf("%s: PEM block exceeds %d bytes", pemLabel(s.accumState), maxPEMBytes)
+	}
+	if strings.TrimRight(line, "\r") == endMarker {
+		s.accumState = pemNone
+		*done = true
+	}
+	return nil
+}
+
+func pemLabel(state pemAccumulator) string {
+	if state == pemSigningKey {
+		return "signing-key"
+	}
+	return "router-signature"
+}
+
+// validateRequired checks that all required fields were found during parsing.
+func (s *descriptorParseState) validateRequired() error {
+	switch {
+	case !s.hasRouter:
+		return fmt.Errorf("missing router line")
+	case !s.hasFingerprint:
+		return fmt.Errorf("missing fingerprint line")
+	case !s.hasNtorKey:
+		return fmt.Errorf("missing ntor-onion-key line")
+	case !s.hasSigningKey:
+		return fmt.Errorf("signing-key: PEM block not found or incomplete")
+	case !s.hasSignature:
+		return fmt.Errorf("router-signature: PEM block not found or incomplete")
+	}
+	return nil
+}
+
+// parseSigningKeyPEM decodes a signing-key PEM block and returns the RSA public key and DER bytes.
+func parseSigningKeyPEM(pemText string) (*rsa.PublicKey, []byte, error) {
+	pemBlock, _ := pem.Decode([]byte(pemText))
 	if pemBlock == nil {
-		return nil, nil, nil, nil, fmt.Errorf("signing-key: failed to decode PEM block")
+		return nil, nil, fmt.Errorf("signing-key: failed to decode PEM block")
 	}
 	signingKey, err := x509.ParsePKCS1PublicKey(pemBlock.Bytes)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("signing-key: %w", err)
+		return nil, nil, fmt.Errorf("signing-key: %w", err)
 	}
+	return signingKey, pemBlock.Bytes, nil
+}
 
-	// Base64-decode the router-signature bytes
-	sigPEM := signaturePEM.String()
+// parseSignaturePEM extracts and base64-decodes the signature bytes from a SIGNATURE PEM block.
+func parseSignaturePEM(pemText string) ([]byte, error) {
 	beginMarker := "-----BEGIN SIGNATURE-----"
 	endMarker := "-----END SIGNATURE-----"
-	beginIdx := strings.Index(sigPEM, beginMarker)
-	endIdx := strings.Index(sigPEM, endMarker)
+	beginIdx := strings.Index(pemText, beginMarker)
+	endIdx := strings.Index(pemText, endMarker)
 	if beginIdx < 0 || endIdx < 0 {
-		return nil, nil, nil, nil, fmt.Errorf("router-signature: malformed PEM block")
+		return nil, fmt.Errorf("router-signature: malformed PEM block")
 	}
-	b64 := sigPEM[beginIdx+len(beginMarker) : endIdx]
+	b64 := pemText[beginIdx+len(beginMarker) : endIdx]
 	b64 = strings.NewReplacer("\n", "", "\r", "", " ", "").Replace(b64)
 	sigBytes, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("router-signature: %w", err)
+		return nil, fmt.Errorf("router-signature: %w", err)
 	}
-
-	return info, signingKey, pemBlock.Bytes, sigBytes, nil
+	return sigBytes, nil
 }
 
 func parseRouterLine(info *RelayInfo, line string) error {
