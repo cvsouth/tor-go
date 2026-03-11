@@ -51,15 +51,25 @@ func FetchDescriptor(client *http.Client, hsdirAddr string, blindedKey [32]byte)
 // FetchDescriptorViaCircuit fetches a v3 hidden service descriptor using
 // BEGIN_DIR over an existing circuit (for HSDirs without a public DirPort).
 // The circuit's last hop must be the HSDir relay.
+//
+// The circuit's read loop must be started before calling this function.
+// The function allocates a unique stream ID, registers it with the circuit's
+// dispatch table, and reads responses from the per-stream channel.
 func FetchDescriptorViaCircuit(circ *circuit.Circuit, blindedKey [32]byte) (string, error) {
 	keyB64 := base64.RawStdEncoding.EncodeToString(blindedKey[:])
-	streamID := uint16(1)
+	streamID := circuit.NextStreamID()
+
+	recv, err := circ.RegisterStream(streamID)
+	if err != nil {
+		return "", fmt.Errorf("register stream: %w", err)
+	}
+	defer circ.UnregisterStream(streamID)
 
 	if err := circ.SendRelay(circuit.RelayBeginDir, streamID, nil); err != nil {
 		return "", fmt.Errorf("send BEGIN_DIR: %w", err)
 	}
 
-	if err := waitForConnected(circ, streamID); err != nil {
+	if err := waitForConnected(recv); err != nil {
 		return "", err
 	}
 
@@ -68,7 +78,7 @@ func FetchDescriptorViaCircuit(circ *circuit.Circuit, blindedKey [32]byte) (stri
 		return "", fmt.Errorf("send HTTP request: %w", err)
 	}
 
-	respBuf, err := readDirResponse(circ, streamID)
+	respBuf, err := readDirResponse(recv)
 	if err != nil {
 		return "", err
 	}
@@ -82,42 +92,46 @@ func FetchDescriptorViaCircuit(circ *circuit.Circuit, blindedKey [32]byte) (stri
 	return body, nil
 }
 
-func waitForConnected(circ *circuit.Circuit, streamID uint16) error {
+func waitForConnected(recv *circuit.StreamReceiver) error {
 	for {
-		_, cmd, sid, _, err := circ.ReceiveRelay()
-		if err != nil {
-			return fmt.Errorf("wait for CONNECTED: %w", err)
-		}
-		if sid != streamID {
+		select {
+		case rc, ok := <-recv.Cells:
+			if !ok {
+				return fmt.Errorf("wait for CONNECTED: stream channel closed")
+			}
+			if rc.Cmd == circuit.RelayConnected {
+				return nil
+			}
+			if rc.Cmd == circuit.RelayEnd {
+				return fmt.Errorf("BEGIN_DIR rejected")
+			}
+			// Skip unexpected cells (e.g., SENDME) and keep waiting.
 			continue
-		}
-		if cmd == circuit.RelayConnected {
-			return nil
-		}
-		if cmd == circuit.RelayEnd {
-			return fmt.Errorf("BEGIN_DIR rejected")
+		case <-recv.Done:
+			return fmt.Errorf("wait for CONNECTED: circuit died")
 		}
 	}
 }
 
-func readDirResponse(circ *circuit.Circuit, streamID uint16) ([]byte, error) {
+func readDirResponse(recv *circuit.StreamReceiver) ([]byte, error) {
 	var buf []byte
 	for {
-		_, cmd, sid, data, err := circ.ReceiveRelay()
-		if err != nil {
-			return nil, fmt.Errorf("read HTTP response: %w", err)
-		}
-		if sid != streamID {
-			continue
-		}
-		switch cmd {
-		case circuit.RelayData:
-			buf = append(buf, data...)
-			if len(buf) > 256*1024 {
-				return nil, fmt.Errorf("descriptor too large")
+		select {
+		case rc, ok := <-recv.Cells:
+			if !ok {
+				return nil, fmt.Errorf("read HTTP response: stream channel closed")
 			}
-		case circuit.RelayEnd:
-			return buf, nil
+			switch rc.Cmd {
+			case circuit.RelayData:
+				buf = append(buf, rc.Data...)
+				if len(buf) > 256*1024 {
+					return nil, fmt.Errorf("descriptor too large")
+				}
+			case circuit.RelayEnd:
+				return buf, nil
+			}
+		case <-recv.Done:
+			return nil, fmt.Errorf("read HTTP response: circuit died")
 		}
 	}
 }

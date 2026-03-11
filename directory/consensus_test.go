@@ -168,7 +168,7 @@ func TestValidateSignaturesStructural(t *testing.T) {
 		t.Fatalf("expected valid with 5 sigs: %v", err)
 	}
 
-	// Only 3 signatures — should fail
+	// Only 3 signatures - should fail
 	text3 := "network-status-version 3 microdesc\n" + strings.Join(sigs[:3], "\n") + "\n"
 	if err := ValidateSignaturesStructural(text3); err == nil {
 		t.Fatal("expected error with only 3 sigs")
@@ -243,7 +243,7 @@ func buildSignedConsensus(t *testing.T, numSigners int) (string, []KeyCert) {
 
 	// The signed content is: preamble + "\ndirectory-signature " (with leading newline before first sig)
 	// But the first directory-signature starts after the preamble, so the signed content is:
-	// preamble + "directory-signature " — wait, per spec it's from "network-status-version" through
+	// preamble + "directory-signature " - wait, per spec it's from "network-status-version" through
 	// the space after "directory-signature". The text has "\ndirectory-signature " and we search for that.
 	// So the signed content = everything up to and including "\ndirectory-signature "
 
@@ -293,7 +293,7 @@ func TestValidateSignaturesCryptoWrongSig(t *testing.T) {
 }
 
 func TestValidateSignaturesIgnoresUnknownAlgorithm(t *testing.T) {
-	// Build 5 signatures but with unknown algorithm — should all be ignored
+	// Build 5 signatures but with unknown algorithm - should all be ignored
 	var sigs []string
 	i := 0
 	for fp := range dirAuthorityFingerprints {
@@ -308,7 +308,7 @@ func TestValidateSignaturesIgnoresUnknownAlgorithm(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	certs := []KeyCert{{SigningKey: &key.PublicKey, IdentityFingerprint: "AAAA", SigningKeyDigest: "BBBB"}}
 	if err := ValidateSignatures(text, certs); err == nil {
-		t.Fatal("expected error — unknown algorithm sigs should be ignored")
+		t.Fatal("expected error - unknown algorithm sigs should be ignored")
 	}
 }
 

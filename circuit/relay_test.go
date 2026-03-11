@@ -212,7 +212,7 @@ func TestEncryptDecryptRoundTripMultiHop(t *testing.T) {
 	// For round-trip: we encrypt with kf, then simulate "relay response" by
 	// creating a circuit where we can decrypt with the same key arrangement.
 
-	// Create 3 hops — for a true round-trip test, we need the forward side (client)
+	// Create 3 hops - for a true round-trip test, we need the forward side (client)
 	// and backward side (relay) to use the same key, just reversed.
 	// Here we test encrypt then decrypt with matching key pairs.
 
@@ -287,7 +287,7 @@ func TestRunningDigestPersistsAcrossCells(t *testing.T) {
 		Hops: []*Hop{hop},
 	}
 
-	// Send two cells from relay, decrypt both — proves running digest state persists
+	// Send two cells from relay, decrypt both - proves running digest state persists
 	for cellNum := 0; cellNum < 2; cellNum++ {
 		var payload [RelayPayloadLen]byte
 		payload[relayCommandOff] = RelayData

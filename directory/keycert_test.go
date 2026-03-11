@@ -164,7 +164,7 @@ fake
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(certs) != 0 {
-		t.Fatal("expected 0 certs — identity key fingerprint should not match claimed fingerprint")
+		t.Fatal("expected 0 certs - identity key fingerprint should not match claimed fingerprint")
 	}
 }
 

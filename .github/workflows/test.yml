@@ -56,6 +56,44 @@ jobs:
     - name: Run govulncheck
       run: govulncheck ./...
 
+    - name: Check gofmt
+      run: |
+        UNFORMATTED=$(gofmt -l .)
+        if [ -n "$UNFORMATTED" ]; then
+          echo "FAIL: The following files are not gofmt'd:"
+          echo "$UNFORMATTED"
+          exit 1
+        fi
+        echo "gofmt: PASS"
+
+    - name: Check gocyclo
+      run: |
+        go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+        OUTPUT=$(gocyclo -over 15 . 2>&1) || true
+        if [ -n "$OUTPUT" ]; then
+          echo "FAIL: Functions with cyclomatic complexity > 15:"
+          echo "$OUTPUT"
+          exit 1
+        fi
+        echo "gocyclo: PASS"
+
+    - name: Check ineffassign
+      run: |
+        go install github.com/gordonklaus/ineffassign@latest
+        ineffassign ./...
+        echo "ineffassign: PASS"
+
+    - name: Check misspell
+      run: |
+        go install github.com/client9/misspell/cmd/misspell@latest
+        OUTPUT=$(misspell .)
+        if [ -n "$OUTPUT" ]; then
+          echo "FAIL: Misspellings found:"
+          echo "$OUTPUT"
+          exit 1
+        fi
+        echo "misspell: PASS"
+
     - name: Run tests with coverage
       run: go test -coverprofile=coverage.out -covermode=atomic ./...
 

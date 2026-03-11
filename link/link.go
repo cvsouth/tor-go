@@ -7,10 +7,48 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/cvsouth/tor-go/cell"
 )
+
+// CircuitReceiver receives raw cells routed to a circuit by the link read loop.
+type CircuitReceiver struct {
+	Cells     chan cell.Cell
+	Done      <-chan struct{}
+	done      chan struct{} // writable; Done is read-only alias
+	doneOnce  sync.Once
+	cellsOnce sync.Once
+}
+
+// closeDone closes the done channel (idempotent).
+func (cr *CircuitReceiver) closeDone() {
+	cr.doneOnce.Do(func() {
+		close(cr.done)
+	})
+}
+
+// closeCells closes the Cells channel (idempotent).
+func (cr *CircuitReceiver) closeCells() {
+	cr.cellsOnce.Do(func() {
+		close(cr.Cells)
+	})
+}
+
+// ReadCell reads a cell from the circuit's channel.
+// This satisfies the circuit.CellReader interface.
+func (cr *CircuitReceiver) ReadCell() (cell.Cell, error) {
+	select {
+	case c, ok := <-cr.Cells:
+		if !ok {
+			return nil, fmt.Errorf("circuit receiver channel closed")
+		}
+		return c, nil
+	case <-cr.Done:
+		return nil, fmt.Errorf("circuit receiver done")
+	}
+}
 
 // Link represents an established Tor link connection.
 type Link struct {
@@ -24,6 +62,14 @@ type Link struct {
 	RelayAddr string
 	// CircIDs tracks allocated circuit IDs on this link to prevent collisions.
 	CircIDs map[uint32]bool
+
+	// Circuit dispatch table for the link read loop.
+	circuits        map[uint32]*CircuitReceiver
+	circuitsMu      sync.RWMutex
+	done            chan struct{} // signals link death
+	readLoopOnce    sync.Once
+	readLoopStarted bool // true after StartReadLoop; guarded by circuitsMu
+	destroyOnce     sync.Once
 }
 
 // ClaimCircID registers a circuit ID on this link. Returns false if already in use.
@@ -51,6 +97,143 @@ func (l *Link) SetDeadline(t time.Time) error {
 // Close closes the underlying TLS connection.
 func (l *Link) Close() error {
 	return l.conn.Close()
+}
+
+// RegisterCircuit creates and stores a CircuitReceiver for the given circuit ID.
+// Returns an error if the ID is already registered or the link is dead.
+func (l *Link) RegisterCircuit(circID uint32) (*CircuitReceiver, error) {
+	doneCh := make(chan struct{})
+	cr := &CircuitReceiver{
+		Cells: make(chan cell.Cell, 32),
+		Done:  doneCh,
+		done:  doneCh,
+	}
+
+	l.circuitsMu.Lock()
+	defer l.circuitsMu.Unlock()
+
+	// Check link death under the lock.
+	if l.done != nil {
+		select {
+		case <-l.done:
+			return nil, fmt.Errorf("link is dead")
+		default:
+		}
+	}
+
+	if l.circuits == nil {
+		l.circuits = make(map[uint32]*CircuitReceiver)
+	}
+	if _, exists := l.circuits[circID]; exists {
+		return nil, fmt.Errorf("circuit ID 0x%08x already registered", circID)
+	}
+	l.circuits[circID] = cr
+	return cr, nil
+}
+
+// UnregisterCircuit removes a circuit from the dispatch table and signals Done.
+// It does NOT close cr.Cells - the cells channel is only closed in cleanupAllCircuits
+// (on link death) to avoid a race with runReadLoop sending to the channel.
+func (l *Link) UnregisterCircuit(circID uint32) {
+	l.circuitsMu.Lock()
+	var cr *CircuitReceiver
+	if l.circuits != nil {
+		cr = l.circuits[circID]
+		delete(l.circuits, circID)
+	}
+	l.circuitsMu.Unlock()
+
+	if cr != nil {
+		cr.closeDone()
+	}
+}
+
+// StartReadLoop starts the background read loop goroutine (idempotent via sync.Once).
+func (l *Link) StartReadLoop() {
+	l.readLoopOnce.Do(func() {
+		l.circuitsMu.Lock()
+		l.readLoopStarted = true
+		l.circuitsMu.Unlock()
+		go l.runReadLoop()
+	})
+}
+
+// runReadLoop reads cells from the TLS connection and routes them by circuit ID.
+func (l *Link) runReadLoop() {
+	defer l.cleanupAllCircuits()
+	defer l.destroy()
+
+	for {
+		c, err := l.Reader.ReadCell()
+		if err != nil {
+			slog.Debug("link read loop exiting", "addr", l.RelayAddr, "err", err)
+			return
+		}
+
+		cmd := c.Command()
+
+		// Discard PADDING/VPADDING at the link level.
+		if cmd == cell.CmdPadding || cmd == cell.CmdVPadding {
+			continue
+		}
+
+		circID := c.CircID()
+
+		l.circuitsMu.RLock()
+		cr, exists := l.circuits[circID]
+		l.circuitsMu.RUnlock()
+
+		if !exists {
+			slog.Debug("discarding cell for unknown circuit", "circID", fmt.Sprintf("0x%08x", circID), "cmd", cmd)
+			continue
+		}
+
+		select {
+		case cr.Cells <- c:
+		case <-cr.Done:
+			slog.Debug("discarding cell for closed circuit", "circID", fmt.Sprintf("0x%08x", circID), "cmd", cmd)
+		case <-l.done:
+			return
+		}
+	}
+}
+
+// cleanupAllCircuits closes all circuit done and cells channels so consumers unblock.
+func (l *Link) cleanupAllCircuits() {
+	l.circuitsMu.Lock()
+	defer l.circuitsMu.Unlock()
+
+	for _, cr := range l.circuits {
+		cr.closeDone()
+		cr.closeCells()
+	}
+}
+
+// destroy signals link death by closing the done channel (idempotent via sync.Once).
+func (l *Link) destroy() {
+	l.destroyOnce.Do(func() {
+		if l.done != nil {
+			close(l.done)
+		}
+	})
+}
+
+// LinkDone returns the link's done channel for detecting link death.
+// Returns nil if the link has no done channel (e.g., test links).
+func (l *Link) LinkDone() <-chan struct{} {
+	return l.done
+}
+
+// NewTestLink creates a Link suitable for testing with the given cell reader
+// and writer. It initializes the circuits map and done channel so that
+// RegisterCircuit, StartReadLoop, etc. work correctly.
+func NewTestLink(reader *cell.Reader, writer *cell.Writer) *Link {
+	return &Link{
+		Reader:   reader,
+		Writer:   writer,
+		circuits: make(map[uint32]*CircuitReceiver),
+		done:     make(chan struct{}),
+	}
 }
 
 // Handshake connects to a Tor relay and performs the full link handshake.
@@ -182,6 +365,8 @@ func Handshake(addr string, logger *slog.Logger) (*Link, error) {
 		Writer:               cw,
 		RelayIdentityEd25519: identityKey,
 		RelayAddr:            addr,
+		circuits:             make(map[uint32]*CircuitReceiver),
+		done:                 make(chan struct{}),
 	}, nil
 }
 
