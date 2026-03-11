@@ -45,10 +45,10 @@ func ValidateFreshness(c *Consensus) error {
 
 // ValidateSignatures cryptographically verifies RSA signatures on the consensus.
 // It requires at least 5 valid signatures from known directory authorities.
-// If certs is nil or empty, falls back to structural validation only.
+// Returns an error if certs is nil or empty.
 func ValidateSignatures(text string, certs []KeyCert) error {
 	if len(certs) == 0 {
-		return ValidateSignaturesStructural(text)
+		return fmt.Errorf("no key certificates available for signature verification")
 	}
 
 	// Build lookup: signing-key-digest -> KeyCert
@@ -103,36 +103,6 @@ func ValidateSignatures(text string, certs []KeyCert) error {
 
 	if len(verified) < 5 {
 		return fmt.Errorf("consensus has %d valid cryptographic signatures, need at least 5", len(verified))
-	}
-	return nil
-}
-
-// ValidateSignaturesStructural checks structural presence of signatures only.
-// Used as fallback when key certificates are unavailable.
-func ValidateSignaturesStructural(text string) error {
-	seen := make(map[string]bool)
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if !strings.HasPrefix(line, "directory-signature ") {
-			continue
-		}
-		parts := strings.Fields(line)
-		var identity string
-		switch len(parts) {
-		case 3:
-			identity = parts[1]
-		case 4:
-			identity = parts[2]
-		default:
-			continue
-		}
-		identity = strings.ToUpper(identity)
-		if dirAuthorityFingerprints[identity] {
-			seen[identity] = true
-		}
-	}
-	if len(seen) < 5 {
-		return fmt.Errorf("consensus has signatures from %d authorities, need at least 5", len(seen))
 	}
 	return nil
 }

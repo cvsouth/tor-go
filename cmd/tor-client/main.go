@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -34,7 +32,11 @@ func main() {
 
 	cache := &directory.Cache{Dir: directory.DefaultCacheDir()}
 	consensusText := loadOrFetchConsensus(cache)
-	keyCerts := loadOrFetchKeyCerts(cache, logger)
+	keyCerts, err := loadOrFetchKeyCerts(cache, logger)
+	if err != nil {
+		fmt.Printf("  Failed to load key certificates: %v\n", err)
+		os.Exit(1)
+	}
 	consensus := validateAndParseConsensus(consensusText, keyCerts, cache, logger)
 	populateMicrodescriptors(consensus, cache, logger)
 
@@ -73,24 +75,22 @@ func loadOrFetchConsensus(cache *directory.Cache) string {
 	return text
 }
 
-func loadOrFetchKeyCerts(cache *directory.Cache, logger *slog.Logger) []directory.KeyCert {
+func loadOrFetchKeyCerts(cache *directory.Cache, logger *slog.Logger) ([]directory.KeyCert, error) {
 	keyCerts, err := cache.LoadKeyCerts()
 	if err == nil && len(keyCerts) > 0 {
 		fmt.Printf("Loaded %d authority key certificates from cache\n", len(keyCerts))
-		return keyCerts
+		return keyCerts, nil
 	}
 	fmt.Println("Fetching authority key certificates...")
 	keyCerts, err = directory.FetchKeyCerts()
 	if err != nil {
-		fmt.Printf("  Warning: failed to fetch key certificates: %v\n", err)
-		fmt.Println("  Falling back to structural signature validation")
-		return nil
+		return nil, fmt.Errorf("fetch key certificates: %w", err)
 	}
 	fmt.Printf("  Fetched %d authority key certificates\n", len(keyCerts))
 	if err := cache.SaveKeyCerts(keyCerts); err != nil {
 		logger.Warn("failed to cache key certs", "error", err)
 	}
-	return keyCerts
+	return keyCerts, nil
 }
 
 func validateAndParseConsensus(text string, keyCerts []directory.KeyCert, cache *directory.Cache, logger *slog.Logger) *directory.Consensus {
@@ -98,11 +98,7 @@ func validateAndParseConsensus(text string, keyCerts []directory.KeyCert, cache 
 		fmt.Printf("  Signature validation failed: %v\n", err)
 		os.Exit(1)
 	}
-	if len(keyCerts) > 0 {
-		fmt.Println("  Consensus cryptographically verified (≥5 RSA signatures)")
-	} else {
-		fmt.Println("  Consensus structurally validated (≥5 authority signatures)")
-	}
+	fmt.Println("  Consensus cryptographically verified (≥5 RSA signatures)")
 
 	consensus, err := directory.ParseConsensus(text)
 	if err != nil {
@@ -180,14 +176,6 @@ func runSOCKSProxy(consensus *directory.Consensus, pool *circpool.Pool, assigner
 	socksAddr := "127.0.0.1:9050"
 	fmt.Printf("\nStarting SOCKS5 proxy on %s...\n", socksAddr)
 
-	hsHTTPClient := &http.Client{
-		Timeout: 60 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
-			DisableCompression: true,
-		},
-	}
-
 	srv := &socks.Server{
 		Addr:   socksAddr,
 		Logger: logger,
@@ -195,7 +183,7 @@ func runSOCKSProxy(consensus *directory.Consensus, pool *circpool.Pool, assigner
 			return assigner.AssignCircuit(target)
 		},
 		OnionHandler: func(onionAddr string, port uint16) (io.ReadWriteCloser, error) {
-			return onion.ConnectOnionService(onionAddr, port, consensus, hsHTTPClient, cb, logger)
+			return onion.ConnectOnionService(onionAddr, port, consensus, cb, logger)
 		},
 	}
 

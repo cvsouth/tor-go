@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
@@ -32,9 +31,8 @@ type ConnectResult struct {
 // Parameters:
 //   - address: the v3 .onion address (with or without .onion suffix)
 //   - consensus: the current consensus
-//   - httpClient: HTTP client for fetching the descriptor (can be nil if builder is provided)
-//   - builder: optional circuit builder for BEGIN_DIR fetch (used when DirPort=0)
-func ResolveOnionService(address string, consensus *directory.Consensus, httpClient *http.Client, builder ...CircuitBuilder) (*ConnectResult, error) {
+//   - builder: optional circuit builder for BEGIN_DIR descriptor fetch
+func ResolveOnionService(address string, consensus *directory.Consensus, builder ...CircuitBuilder) (*ConnectResult, error) {
 	pubkey, err := DecodeOnion(address)
 	if err != nil {
 		return nil, fmt.Errorf("decode .onion address: %w", err)
@@ -65,7 +63,7 @@ func ResolveOnionService(address string, consensus *directory.Consensus, httpCli
 		cb = builder[0]
 	}
 
-	descriptorText, err := fetchDescriptorFromHSDirs(hsdirs, blindedKey, httpClient, cb)
+	descriptorText, err := fetchDescriptorFromHSDirs(hsdirs, blindedKey, cb)
 	if err != nil {
 		return nil, err
 	}
@@ -92,10 +90,10 @@ func ResolveOnionService(address string, consensus *directory.Consensus, httpCli
 	}, nil
 }
 
-func fetchDescriptorFromHSDirs(hsdirs []*directory.Relay, blindedKey [32]byte, httpClient *http.Client, cb CircuitBuilder) (string, error) {
+func fetchDescriptorFromHSDirs(hsdirs []*directory.Relay, blindedKey [32]byte, cb CircuitBuilder) (string, error) {
 	var lastErr error
 	for _, hsdir := range hsdirs {
-		text, err := fetchFromHSDir(hsdir, blindedKey, httpClient, cb)
+		text, err := fetchFromHSDir(hsdir, blindedKey, cb)
 		if err != nil {
 			lastErr = err
 			continue
@@ -105,32 +103,28 @@ func fetchDescriptorFromHSDirs(hsdirs []*directory.Relay, blindedKey [32]byte, h
 		}
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("no reachable HSDirs (all have DirPort=0 and no circuit builder)")
+		lastErr = fmt.Errorf("no reachable HSDirs")
 	}
 	return "", fmt.Errorf("failed to fetch descriptor from all HSDirs: %w", lastErr)
 }
 
-func fetchFromHSDir(hsdir *directory.Relay, blindedKey [32]byte, httpClient *http.Client, cb CircuitBuilder) (string, error) {
-	if hsdir.DirPort > 0 && httpClient != nil {
-		addr := fmt.Sprintf("%s:%d", hsdir.Address, hsdir.DirPort)
-		return FetchDescriptor(httpClient, addr, blindedKey)
+func fetchFromHSDir(hsdir *directory.Relay, blindedKey [32]byte, cb CircuitBuilder) (string, error) {
+	if cb == nil {
+		return "", fmt.Errorf("no circuit builder available to fetch from HSDir %s", hsdir.Address)
 	}
-	if cb != nil {
-		hsdirInfo := &descriptor.RelayInfo{
-			NodeID:       hsdir.Identity,
-			NtorOnionKey: hsdir.NtorOnionKey,
-			Address:      hsdir.Address,
-			ORPort:       hsdir.ORPort,
-		}
-		built, err := cb.BuildCircuit(hsdirInfo)
-		if err != nil {
-			return "", fmt.Errorf("build circuit to HSDir: %w", err)
-		}
-		defer func() { _ = built.LinkCloser.Close() }()
-		built.Circuit.StartReadLoop()
-		return FetchDescriptorViaCircuit(built.Circuit, blindedKey)
+	hsdirInfo := &descriptor.RelayInfo{
+		NodeID:       hsdir.Identity,
+		NtorOnionKey: hsdir.NtorOnionKey,
+		Address:      hsdir.Address,
+		ORPort:       hsdir.ORPort,
 	}
-	return "", nil // No way to fetch from this HSDir
+	built, err := cb.BuildCircuit(hsdirInfo)
+	if err != nil {
+		return "", fmt.Errorf("build circuit to HSDir: %w", err)
+	}
+	defer func() { _ = built.LinkCloser.Close() }()
+	built.Circuit.StartReadLoop()
+	return FetchDescriptorViaCircuit(built.Circuit, blindedKey)
 }
 
 // IsOnionAddress returns true if the target address is a .onion address.
@@ -177,7 +171,6 @@ func ConnectOnionService(
 	address string,
 	port uint16,
 	consensus *directory.Consensus,
-	httpClient *http.Client,
 	builder CircuitBuilder,
 	logger *slog.Logger,
 ) (io.ReadWriteCloser, error) {
@@ -187,7 +180,7 @@ func ConnectOnionService(
 
 	// 1. Resolve the onion service descriptor.
 	logger.Info("resolving onion service", "address", address)
-	result, err := ResolveOnionService(address, consensus, httpClient, builder)
+	result, err := ResolveOnionService(address, consensus, builder)
 	if err != nil {
 		return nil, fmt.Errorf("resolve onion service: %w", err)
 	}

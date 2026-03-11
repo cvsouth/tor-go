@@ -3,54 +3,14 @@ package onion
 import (
 	"encoding/base64"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 
 	"github.com/cvsouth/tor-go/circuit"
 )
 
-// FetchDescriptor fetches a v3 hidden service descriptor from the given HSDir
-// relay. The request is made to the relay's DirPort using the blinded public
-// key to construct the URL: /tor/hs/3/<base64_blinded_key>
-//
-// Per rend-spec-v3, this request should be made anonymously over a Tor circuit.
-// The client parameter allows routing through Tor.
-func FetchDescriptor(client *http.Client, hsdirAddr string, blindedKey [32]byte) (string, error) {
-	// Base64 encode the blinded key (raw standard encoding, no padding per spec).
-	keyB64 := base64.RawStdEncoding.EncodeToString(blindedKey[:])
-
-	url := fmt.Sprintf("http://%s/tor/hs/3/%s", hsdirAddr, keyB64)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	// Per rend-spec-v3: clients SHOULD NOT advertise compression methods.
-	// Don't set Accept-Encoding to avoid fingerprinting.
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("fetch descriptor from %s: %w", hsdirAddr, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetch descriptor from %s: HTTP %d", hsdirAddr, resp.StatusCode)
-	}
-
-	// Descriptors are typically small (< 50KB), cap at 256KB.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
-	if err != nil {
-		return "", fmt.Errorf("read descriptor from %s: %w", hsdirAddr, err)
-	}
-
-	return string(body), nil
-}
-
 // FetchDescriptorViaCircuit fetches a v3 hidden service descriptor using
-// BEGIN_DIR over an existing circuit (for HSDirs without a public DirPort).
-// The circuit's last hop must be the HSDir relay.
+// BEGIN_DIR over an existing circuit. The circuit's last hop must be the
+// HSDir relay.
 //
 // The circuit's read loop must be started before calling this function.
 // The function allocates a unique stream ID, registers it with the circuit's

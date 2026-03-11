@@ -1,5 +1,9 @@
 package directory
 
+// DirPort TLS spike (Slice 4.1): Tor directory authorities do NOT serve HTTPS
+// on their DirPorts — TLS handshakes time out. Slices 4.2–4.4 (HTTPS upgrade)
+// are therefore skipped. See research/dirport-tls-spike.md for full findings.
+
 import (
 	"fmt"
 	"io"

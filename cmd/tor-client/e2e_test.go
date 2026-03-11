@@ -175,11 +175,6 @@ func TestE2EConsensusAndSignatures(t *testing.T) {
 		t.Fatalf("ValidateSignatures (crypto): %v", err)
 	}
 
-	// Structural verification should also pass
-	if err := directory.ValidateSignaturesStructural(text); err != nil {
-		t.Fatalf("ValidateSignaturesStructural: %v", err)
-	}
-
 	consensus, err := directory.ParseConsensus(text)
 	if err != nil {
 		t.Fatalf("ParseConsensus: %v", err)
