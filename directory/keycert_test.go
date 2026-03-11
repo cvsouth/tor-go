@@ -192,3 +192,10 @@ dir-key-expires 2030-01-01 00:00:00
 		t.Fatalf("expected 0 certs (malformed), got %d", len(certs))
 	}
 }
+
+func TestFetchKeyCertsNilCircuit(t *testing.T) {
+	_, err := FetchKeyCerts(nil)
+	if err == nil {
+		t.Fatal("expected error for nil circuit")
+	}
+}

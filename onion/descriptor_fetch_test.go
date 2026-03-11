@@ -165,8 +165,7 @@ func TestTwoConcurrentDescriptorFetches(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			// NextStreamID is called inside FetchDescriptorViaCircuit.
-			// We capture the ID by observing which stream IDs get registered.
+			// NextStreamID is called inside stream.BeginDir via FetchViaBeginDir.
 			// For simplicity, we just call NextStreamID to see what would be allocated.
 			id := circuit.NextStreamID()
 			ids[idx] = id
@@ -210,7 +209,7 @@ func TestDescriptorFetchUnregistersOnError(t *testing.T) {
 		t.Fatal("expected error when BEGIN_DIR is rejected")
 	}
 
-	// Stream should be unregistered via defer.
+	// Stream should be unregistered after error.
 	_, regErr := circ.RegisterStream(55)
 	if regErr != nil {
 		t.Fatalf("re-registering stream 55 after error: %v", regErr)
@@ -219,7 +218,6 @@ func TestDescriptorFetchUnregistersOnError(t *testing.T) {
 
 func TestNoReceiveRelayExported(t *testing.T) {
 	// Compilation-level check: ReceiveRelay is no longer exported.
-	// If someone adds ReceiveRelay back, this file would need to be updated.
 	// The method is now ReceiveRelaySetup. This test verifies the rename
 	// by calling ReceiveRelaySetup and confirming it exists.
 	const circID = uint32(0x80000001)
@@ -255,7 +253,7 @@ func TestReceiveRelaySetupFailsAfterReadLoop(t *testing.T) {
 }
 
 func TestDescriptorFetchCircuitDied(t *testing.T) {
-	// When the circuit dies during waitForConnected, the function should return an error.
+	// When the circuit dies, the function should return an error.
 	const circID = uint32(0x80000001)
 	reader := newChannelCellReader()
 	circ, _, _ := testFetchCircuit(circID, reader)
@@ -276,84 +274,33 @@ func TestDescriptorFetchCircuitDied(t *testing.T) {
 	}
 }
 
-func TestWaitForConnectedSkipsUnexpectedCells(t *testing.T) {
-	// waitForConnected should skip non-CONNECTED/non-END cells (e.g., SENDME)
-	// and keep waiting until CONNECTED arrives.
+func TestDescriptorFetchNon200Status(t *testing.T) {
+	// FetchDescriptorViaCircuit should return an error for non-200 HTTP responses.
 	const circID = uint32(0x80000001)
 	reader := newChannelCellReader()
 	circ, kbEnc, dbRelay := testFetchCircuit(circID, reader)
 	circ.StartReadLoop()
 
-	circuit.ResetNextStreamID(88)
+	circuit.ResetNextStreamID(90)
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		// Send a SENDME (unexpected during waitForConnected) before CONNECTED
-		sendmeCell := buildRelayCell(circID, circuit.RelaySendMe, 88, nil, kbEnc, dbRelay)
-		reader.ch <- sendmeCell
-
-		time.Sleep(20 * time.Millisecond)
-		// Now send CONNECTED
-		connCell := buildRelayCell(circID, circuit.RelayConnected, 88, nil, kbEnc, dbRelay)
+		connCell := buildRelayCell(circID, circuit.RelayConnected, 90, nil, kbEnc, dbRelay)
 		reader.ch <- connCell
 
 		time.Sleep(20 * time.Millisecond)
-		// Send HTTP response and END
-		httpResp := []byte("HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok")
-		dataCell := buildRelayCell(circID, circuit.RelayData, 88, httpResp, kbEnc, dbRelay)
+		httpResp := []byte("HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found")
+		dataCell := buildRelayCell(circID, circuit.RelayData, 90, httpResp, kbEnc, dbRelay)
 		reader.ch <- dataCell
 
 		time.Sleep(20 * time.Millisecond)
-		endCell := buildRelayCell(circID, circuit.RelayEnd, 88, nil, kbEnc, dbRelay)
+		endCell := buildRelayCell(circID, circuit.RelayEnd, 90, nil, kbEnc, dbRelay)
 		reader.ch <- endCell
 	}()
 
 	var blindedKey [32]byte
-	body, err := FetchDescriptorViaCircuit(circ, blindedKey)
-	if err != nil {
-		t.Fatalf("FetchDescriptorViaCircuit: %v", err)
-	}
-	if body != "ok" {
-		t.Fatalf("body = %q, want %q", body, "ok")
-	}
-}
-
-func TestWaitForConnectedMultipleUnexpectedCells(t *testing.T) {
-	// Multiple unexpected cells before CONNECTED should all be skipped.
-	const circID = uint32(0x80000001)
-	reader := newChannelCellReader()
-	circ, kbEnc, dbRelay := testFetchCircuit(circID, reader)
-	circ.StartReadLoop()
-
-	circuit.ResetNextStreamID(89)
-
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		// Send 3 SENDMEs before CONNECTED
-		for i := 0; i < 3; i++ {
-			sendmeCell := buildRelayCell(circID, circuit.RelaySendMe, 89, nil, kbEnc, dbRelay)
-			reader.ch <- sendmeCell
-			time.Sleep(10 * time.Millisecond)
-		}
-		connCell := buildRelayCell(circID, circuit.RelayConnected, 89, nil, kbEnc, dbRelay)
-		reader.ch <- connCell
-
-		time.Sleep(20 * time.Millisecond)
-		httpResp := []byte("HTTP/1.0 200 OK\r\nContent-Length: 4\r\n\r\ndone")
-		dataCell := buildRelayCell(circID, circuit.RelayData, 89, httpResp, kbEnc, dbRelay)
-		reader.ch <- dataCell
-
-		time.Sleep(20 * time.Millisecond)
-		endCell := buildRelayCell(circID, circuit.RelayEnd, 89, nil, kbEnc, dbRelay)
-		reader.ch <- endCell
-	}()
-
-	var blindedKey [32]byte
-	body, err := FetchDescriptorViaCircuit(circ, blindedKey)
-	if err != nil {
-		t.Fatalf("FetchDescriptorViaCircuit: %v", err)
-	}
-	if body != "done" {
-		t.Fatalf("body = %q, want %q", body, "done")
+	_, err := FetchDescriptorViaCircuit(circ, blindedKey)
+	if err == nil {
+		t.Fatal("expected error for HTTP 404 response")
 	}
 }

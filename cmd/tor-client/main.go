@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,14 +32,7 @@ func main() {
 	fmt.Println()
 
 	cache := &directory.Cache{Dir: directory.DefaultCacheDir()}
-	consensusText := loadOrFetchConsensus(cache)
-	keyCerts, err := loadOrFetchKeyCerts(cache, logger)
-	if err != nil {
-		fmt.Printf("  Failed to load key certificates: %v\n", err)
-		os.Exit(1)
-	}
-	consensus := validateAndParseConsensus(consensusText, keyCerts, cache, logger)
-	populateMicrodescriptors(consensus, cache, logger)
+	consensus := bootstrap(cache, logger)
 
 	fmt.Println("\nStarting circuit pool...")
 	cb := &circuitBuilder{consensus: consensus, logger: logger}
@@ -60,37 +54,96 @@ func setupLogging() (*slog.Logger, *os.File) {
 	return logger, logFile
 }
 
-func loadOrFetchConsensus(cache *directory.Cache) string {
-	if text, ok := cache.LoadConsensus(); ok {
-		fmt.Println("Loaded consensus from cache")
-		return text
-	}
-	fmt.Println("Fetching consensus from directory authorities...")
-	text, err := directory.FetchConsensus()
-	if err != nil {
-		fmt.Printf("  Failed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("  Fetched consensus (%d bytes)\n", len(text))
-	return text
+// bootstrapData holds all data fetched during bootstrap.
+type bootstrapData struct {
+	consensusText string
+	keyCerts      []directory.KeyCert
 }
 
-func loadOrFetchKeyCerts(cache *directory.Cache, logger *slog.Logger) ([]directory.KeyCert, error) {
-	keyCerts, err := cache.LoadKeyCerts()
-	if err == nil && len(keyCerts) > 0 {
-		fmt.Printf("Loaded %d authority key certificates from cache\n", len(keyCerts))
-		return keyCerts, nil
+// bootstrap loads consensus and key certs from cache, or fetches them from
+// a directory authority over a single bootstrap circuit. It validates, parses,
+// and populates microdescriptors before returning the final consensus.
+func bootstrap(cache *directory.Cache, logger *slog.Logger) *directory.Consensus {
+	data := loadFromCache(cache)
+	if data == nil {
+		data = fetchFromAuthorities(logger)
+		cacheBootstrapData(data, cache, logger)
 	}
-	fmt.Println("Fetching authority key certificates...")
-	keyCerts, err = directory.FetchKeyCerts()
+	consensus := validateAndParseConsensus(data.consensusText, data.keyCerts, cache, logger)
+	populateMicrodescriptors(consensus, cache, logger)
+	return consensus
+}
+
+// loadFromCache attempts to load consensus and key certs from the local cache.
+// Returns nil if either is missing.
+func loadFromCache(cache *directory.Cache) *bootstrapData {
+	consensusText, hasCons := cache.LoadConsensus()
+	keyCerts, err := cache.LoadKeyCerts()
+	if !hasCons || err != nil || len(keyCerts) == 0 {
+		return nil
+	}
+	fmt.Println("Loaded consensus and key certs from cache")
+	return &bootstrapData{consensusText: consensusText, keyCerts: keyCerts}
+}
+
+// fetchFromAuthorities tries each directory authority in shuffled order,
+// fetching consensus and key certs over a single bootstrap circuit per attempt.
+// Shuffling avoids always hitting the same authority first, distributing load
+// and reducing predictability for network observers.
+func fetchFromAuthorities(logger *slog.Logger) *bootstrapData {
+	fmt.Println("Fetching consensus from directory authorities...")
+	auths := make([]directory.DirAuthority, len(directory.DirAuthorities))
+	copy(auths, directory.DirAuthorities)
+	rand.Shuffle(len(auths), func(i, j int) { auths[i], auths[j] = auths[j], auths[i] })
+	for i := range auths {
+		auth := &auths[i]
+		data, err := bootstrapFromAuthority(auth, logger)
+		if err != nil {
+			logger.Warn("bootstrap from authority failed", "authority", auth.Nickname, "error", err)
+			continue
+		}
+		return data
+	}
+	fmt.Println("  Failed to fetch consensus from any authority")
+	os.Exit(1)
+	return nil
+}
+
+// bootstrapFromAuthority fetches consensus and key certs from a single
+// directory authority over one bootstrap circuit.
+func bootstrapFromAuthority(auth *directory.DirAuthority, logger *slog.Logger) (*bootstrapData, error) {
+	relayInfo, err := directory.FetchAuthorityDescriptor(auth)
 	if err != nil {
-		return nil, fmt.Errorf("fetch key certificates: %w", err)
+		return nil, fmt.Errorf("fetch descriptor: %w", err)
+	}
+	circ, l, err := directory.BootstrapCircuit(auth, relayInfo, logger)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap circuit: %w", err)
+	}
+	defer func() { _ = circ.Destroy(); _ = l.Close() }()
+
+	text, err := directory.FetchConsensus(circ)
+	if err != nil {
+		return nil, fmt.Errorf("fetch consensus: %w", err)
+	}
+	fmt.Printf("  Fetched consensus (%d bytes)\n", len(text))
+
+	keyCerts, err := directory.FetchKeyCerts(circ)
+	if err != nil {
+		return nil, fmt.Errorf("fetch key certs: %w", err)
 	}
 	fmt.Printf("  Fetched %d authority key certificates\n", len(keyCerts))
-	if err := cache.SaveKeyCerts(keyCerts); err != nil {
+
+	return &bootstrapData{consensusText: text, keyCerts: keyCerts}, nil
+}
+
+// cacheBootstrapData saves fetched key certs to the local cache.
+// Note: consensus caching happens separately in validateAndParseConsensus,
+// after signature validation, so that only verified consensuses are cached.
+func cacheBootstrapData(data *bootstrapData, cache *directory.Cache, logger *slog.Logger) {
+	if err := cache.SaveKeyCerts(data.keyCerts); err != nil {
 		logger.Warn("failed to cache key certs", "error", err)
 	}
-	return keyCerts, nil
 }
 
 func validateAndParseConsensus(text string, keyCerts []directory.KeyCert, cache *directory.Cache, logger *slog.Logger) *directory.Consensus {
@@ -154,12 +207,31 @@ func fetchMissingMicrodescriptors(relays []directory.Relay, logger *slog.Logger)
 		return
 	}
 	fmt.Printf("  Fetching microdescriptors for %d relays...\n", needFetch)
-	for _, addr := range directory.DirAuthorities {
-		if directory.UpdateRelaysWithMicrodescriptors(addr, relays) == nil {
-			break
+	auths := make([]directory.DirAuthority, len(directory.DirAuthorities))
+	copy(auths, directory.DirAuthorities)
+	rand.Shuffle(len(auths), func(i, j int) { auths[i], auths[j] = auths[j], auths[i] })
+	for i := range auths {
+		auth := &auths[i]
+		if err := fetchMicrodescFromAuthority(auth, relays, logger); err != nil {
+			logger.Warn("microdesc fetch from authority failed", "authority", auth.Nickname, "error", err)
+			continue
 		}
-		logger.Warn("microdesc fetch failed", "addr", addr)
+		return
 	}
+	fmt.Println("  Failed to fetch microdescriptors from any authority")
+}
+
+func fetchMicrodescFromAuthority(auth *directory.DirAuthority, relays []directory.Relay, logger *slog.Logger) error {
+	relayInfo, err := directory.FetchAuthorityDescriptor(auth)
+	if err != nil {
+		return fmt.Errorf("fetch descriptor: %w", err)
+	}
+	circ, l, err := directory.BootstrapCircuit(auth, relayInfo, logger)
+	if err != nil {
+		return fmt.Errorf("bootstrap circuit: %w", err)
+	}
+	defer func() { _ = circ.Destroy(); _ = l.Close() }()
+	return directory.UpdateRelaysWithMicrodescriptors(circ, relays)
 }
 
 func countNtorKeys(relays []directory.Relay) int {

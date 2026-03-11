@@ -27,31 +27,64 @@ func skipIfShort(t *testing.T) {
 	}
 }
 
-// fetchConsensusAndCerts fetches a fresh consensus and key certs from the real
-// Tor network, validates signatures, and returns parsed results.
-func fetchConsensusAndCerts(t *testing.T) (string, *directory.Consensus, []directory.KeyCert) {
+// testBootstrapFromAuthority fetches consensus, key certs, and microdescriptors
+// from a single authority over one bootstrap circuit. Returns nil on failure.
+func testBootstrapFromAuthority(t *testing.T, auth *directory.DirAuthority) (*bootstrapData, error) {
 	t.Helper()
+	logger := testLogger()
 
-	t.Log("Fetching key certificates...")
-	keyCerts, err := directory.FetchKeyCerts()
+	relayInfo, err := directory.FetchAuthorityDescriptor(auth)
 	if err != nil {
-		t.Fatalf("FetchKeyCerts: %v", err)
+		return nil, fmt.Errorf("FetchAuthorityDescriptor(%s): %w", auth.Nickname, err)
+	}
+	circ, l, err := directory.BootstrapCircuit(auth, relayInfo, logger)
+	if err != nil {
+		return nil, fmt.Errorf("BootstrapCircuit(%s): %w", auth.Nickname, err)
+	}
+	defer func() { _ = circ.Destroy(); _ = l.Close() }()
+
+	keyCerts, err := directory.FetchKeyCerts(circ)
+	if err != nil {
+		return nil, fmt.Errorf("FetchKeyCerts: %w", err)
 	}
 	t.Logf("  Got %d key certs", len(keyCerts))
 
-	t.Log("Fetching consensus...")
-	text, err := directory.FetchConsensus()
+	text, err := directory.FetchConsensus(circ)
 	if err != nil {
-		t.Fatalf("FetchConsensus: %v", err)
+		return nil, fmt.Errorf("FetchConsensus: %w", err)
 	}
-	t.Logf("  Got %d bytes", len(text))
+	t.Logf("  Got %d bytes consensus", len(text))
 
-	if err := directory.ValidateSignatures(text, keyCerts); err != nil {
+	return &bootstrapData{consensusText: text, keyCerts: keyCerts}, nil
+}
+
+// fetchConsensusAndCerts fetches a fresh consensus and key certs from the real
+// Tor network using a single bootstrap circuit per authority attempt,
+// validates signatures, and returns parsed results.
+func fetchConsensusAndCerts(t *testing.T) (string, *directory.Consensus, []directory.KeyCert) {
+	t.Helper()
+
+	var data *bootstrapData
+	for i := range directory.DirAuthorities {
+		auth := &directory.DirAuthorities[i]
+		d, err := testBootstrapFromAuthority(t, auth)
+		if err != nil {
+			t.Logf("  %v", err)
+			continue
+		}
+		data = d
+		break
+	}
+	if data == nil {
+		t.Fatal("failed to bootstrap from any authority")
+	}
+
+	if err := directory.ValidateSignatures(data.consensusText, data.keyCerts); err != nil {
 		t.Fatalf("ValidateSignatures: %v", err)
 	}
 	t.Log("  Consensus cryptographically verified")
 
-	consensus, err := directory.ParseConsensus(text)
+	consensus, err := directory.ParseConsensus(data.consensusText)
 	if err != nil {
 		t.Fatalf("ParseConsensus: %v", err)
 	}
@@ -60,13 +93,14 @@ func fetchConsensusAndCerts(t *testing.T) (string, *directory.Consensus, []direc
 		t.Fatalf("ValidateFreshness: %v", err)
 	}
 
-	return text, consensus, keyCerts
+	return data.consensusText, consensus, data.keyCerts
 }
 
 // fetchMicrodescriptors fetches microdescriptors for useful relays and updates
-// the consensus relay list in place.
+// the consensus relay list in place, using a single bootstrap circuit.
 func fetchMicrodescriptors(t *testing.T, consensus *directory.Consensus) {
 	t.Helper()
+	logger := testLogger()
 
 	var useful []directory.Relay
 	for _, r := range consensus.Relays {
@@ -76,10 +110,29 @@ func fetchMicrodescriptors(t *testing.T, consensus *directory.Consensus) {
 	}
 	t.Logf("  %d relays with useful flags", len(useful))
 
-	for _, addr := range directory.DirAuthorities {
-		if err := directory.UpdateRelaysWithMicrodescriptors(addr, useful); err == nil {
+	var mdErr error
+	for i := range directory.DirAuthorities {
+		auth := &directory.DirAuthorities[i]
+		relayInfo, err := directory.FetchAuthorityDescriptor(auth)
+		if err != nil {
+			t.Logf("  FetchAuthorityDescriptor(%s) failed: %v", auth.Nickname, err)
+			continue
+		}
+		circ, l, err := directory.BootstrapCircuit(auth, relayInfo, logger)
+		if err != nil {
+			t.Logf("  BootstrapCircuit(%s) failed: %v", auth.Nickname, err)
+			continue
+		}
+		mdErr = directory.UpdateRelaysWithMicrodescriptors(circ, useful)
+		_ = circ.Destroy()
+		_ = l.Close()
+		if mdErr == nil {
 			break
 		}
+		t.Logf("  UpdateRelaysWithMicrodescriptors via %s failed: %v", auth.Nickname, mdErr)
+	}
+	if mdErr != nil {
+		t.Fatalf("UpdateRelaysWithMicrodescriptors: %v", mdErr)
 	}
 
 	ntorCount := 0
@@ -148,34 +201,41 @@ func buildCircuit(t *testing.T, consensus *directory.Consensus, logger *slog.Log
 }
 
 // TestE2EConsensusAndSignatures tests fetching and cryptographically verifying
-// a real consensus from the Tor network. This is the test that would have
-// caught the PKCS#1 v1.5 DigestInfo bug.
+// a real consensus from the Tor network using a single bootstrap circuit.
+// This is the test that would have caught the PKCS#1 v1.5 DigestInfo bug.
 func TestE2EConsensusAndSignatures(t *testing.T) {
 	skipIfShort(t)
 
-	keyCerts, err := directory.FetchKeyCerts()
-	if err != nil {
-		t.Fatalf("FetchKeyCerts: %v", err)
+	var data *bootstrapData
+	for i := range directory.DirAuthorities {
+		auth := &directory.DirAuthorities[i]
+		d, err := testBootstrapFromAuthority(t, auth)
+		if err != nil {
+			t.Logf("  %v", err)
+			continue
+		}
+		data = d
+		break
 	}
-	if len(keyCerts) < 5 {
-		t.Fatalf("expected ≥5 key certs, got %d", len(keyCerts))
+	if data == nil {
+		t.Fatal("failed to bootstrap from any authority")
 	}
-	t.Logf("Fetched %d key certs", len(keyCerts))
 
-	text, err := directory.FetchConsensus()
-	if err != nil {
-		t.Fatalf("FetchConsensus: %v", err)
+	if len(data.keyCerts) < 5 {
+		t.Fatalf("expected ≥5 key certs, got %d", len(data.keyCerts))
 	}
-	if len(text) < 1000 {
-		t.Fatalf("consensus too small: %d bytes", len(text))
+	t.Logf("Fetched %d key certs", len(data.keyCerts))
+
+	if len(data.consensusText) < 1000 {
+		t.Fatalf("consensus too small: %d bytes", len(data.consensusText))
 	}
 
 	// Cryptographic verification - the critical test
-	if err := directory.ValidateSignatures(text, keyCerts); err != nil {
+	if err := directory.ValidateSignatures(data.consensusText, data.keyCerts); err != nil {
 		t.Fatalf("ValidateSignatures (crypto): %v", err)
 	}
 
-	consensus, err := directory.ParseConsensus(text)
+	consensus, err := directory.ParseConsensus(data.consensusText)
 	if err != nil {
 		t.Fatalf("ParseConsensus: %v", err)
 	}
@@ -209,7 +269,7 @@ func TestE2EMicrodescriptors(t *testing.T) {
 	}
 	t.Logf("%d useful relays", len(useful))
 
-	fetchMicrodescriptorsFromAuthorities(useful)
+	fetchMicrodescriptorsFromAuthorities(t, useful)
 
 	ntorCount := countNtorKeysInRelays(useful)
 	t.Logf("%d/%d relays got ntor keys", ntorCount, len(useful))
@@ -231,12 +291,31 @@ func filterUsefulRelays(relays []directory.Relay) []directory.Relay {
 	return useful
 }
 
-func fetchMicrodescriptorsFromAuthorities(relays []directory.Relay) {
-	for _, addr := range directory.DirAuthorities {
-		if directory.UpdateRelaysWithMicrodescriptors(addr, relays) == nil {
-			break
+func fetchMicrodescriptorsFromAuthorities(t *testing.T, relays []directory.Relay) {
+	t.Helper()
+	logger := testLogger()
+	for i := range directory.DirAuthorities {
+		auth := &directory.DirAuthorities[i]
+		relayInfo, err := directory.FetchAuthorityDescriptor(auth)
+		if err != nil {
+			t.Logf("  FetchAuthorityDescriptor(%s) failed: %v", auth.Nickname, err)
+			continue
 		}
+		circ, l, err := directory.BootstrapCircuit(auth, relayInfo, logger)
+		if err != nil {
+			t.Logf("  BootstrapCircuit(%s) failed: %v", auth.Nickname, err)
+			continue
+		}
+		err = directory.UpdateRelaysWithMicrodescriptors(circ, relays)
+		_ = circ.Destroy()
+		_ = l.Close()
+		if err != nil {
+			t.Logf("  UpdateRelaysWithMicrodescriptors via %s failed: %v", auth.Nickname, err)
+			continue
+		}
+		return
 	}
+	t.Fatal("failed to fetch microdescriptors from any authority")
 }
 
 func countNtorKeysInRelays(relays []directory.Relay) int {
