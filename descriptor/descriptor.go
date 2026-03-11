@@ -28,9 +28,9 @@ type RelayInfo struct {
 type pemAccumulator int
 
 const (
-	pemNone      pemAccumulator = iota
-	pemSigningKey               // accumulating signing-key PEM block
-	pemSignature                // accumulating router-signature PEM block
+	pemNone       pemAccumulator = iota
+	pemSigningKey                // accumulating signing-key PEM block
+	pemSignature                 // accumulating router-signature PEM block
 )
 
 // ParseDescriptor parses a relay server descriptor text, verifies the RSA

@@ -673,4 +673,3 @@ func extractSigBytes(t testing.TB, desc string) []byte {
 	}
 	return sigBytes
 }
-
