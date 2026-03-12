@@ -7,10 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
+
+	"github.com/cvsouth/tor-go/circuit"
 )
 
 // KeyCert represents a parsed directory authority key certificate.
@@ -21,54 +21,20 @@ type KeyCert struct {
 	Expires             time.Time      // dir-key-expires
 }
 
-// FetchKeyCerts fetches authority key certificates from directory authorities.
-// Tries each authority until one succeeds.
-func FetchKeyCerts() ([]KeyCert, error) {
-	var lastErr error
-	for _, addr := range DirAuthorities {
-		text, err := fetchKeyCertsFrom(addr)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		certs, err := ParseKeyCerts(text)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if len(certs) == 0 {
-			lastErr = fmt.Errorf("no valid key certs from %s", addr)
-			continue
-		}
-		return certs, nil
-	}
-	return nil, fmt.Errorf("all directory authorities failed for key certs: %w", lastErr)
-}
-
-func fetchKeyCertsFrom(addr string) (string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			DisableCompression: true,
-		},
-	}
-	url := fmt.Sprintf("http://%s/tor/keys/all", addr)
-
-	resp, err := client.Get(url)
+// FetchKeyCerts fetches authority key certificates via a BEGIN_DIR circuit.
+func FetchKeyCerts(circ *circuit.Circuit) ([]KeyCert, error) {
+	body, err := FetchViaBeginDir(circ, "/tor/keys/all", 5*1024*1024)
 	if err != nil {
-		return "", fmt.Errorf("fetch key certs from %s: %w", addr, err)
+		return nil, fmt.Errorf("fetch key certs: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetch key certs from %s: HTTP %d", addr, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+	certs, err := ParseKeyCerts(string(body))
 	if err != nil {
-		return "", fmt.Errorf("read key certs from %s: %w", addr, err)
+		return nil, fmt.Errorf("parse key certs: %w", err)
 	}
-	return string(body), nil
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no valid key certs returned")
+	}
+	return certs, nil
 }
 
 // ParseKeyCerts parses concatenated authority key certificate text.
@@ -127,7 +93,10 @@ func parseOneKeyCert(block string, now time.Time) (*KeyCert, error) {
 		return nil, err
 	}
 
-	if !fields.expires.IsZero() && now.After(fields.expires) {
+	if fields.expires.IsZero() {
+		return nil, fmt.Errorf("missing or unparseable dir-key-expires for %s", fields.fingerprint)
+	}
+	if now.After(fields.expires) {
 		return nil, fmt.Errorf("expired cert for %s", fields.fingerprint)
 	}
 
@@ -165,11 +134,11 @@ func extractKeyCertFields(block string) keyCertFields {
 
 func verifyIdentityFingerprint(identityKeyPEM, fingerprint string) error {
 	if identityKeyPEM == "" {
-		return nil
+		return fmt.Errorf("missing identity key for %s", fingerprint)
 	}
 	idBlock, _ := pem.Decode([]byte(identityKeyPEM))
 	if idBlock == nil {
-		return nil
+		return fmt.Errorf("failed to decode identity key PEM for %s", fingerprint)
 	}
 	idDigest := sha1.Sum(idBlock.Bytes)
 	computedFP := strings.ToUpper(hex.EncodeToString(idDigest[:]))

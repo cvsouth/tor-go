@@ -152,48 +152,20 @@ func TestValidateFreshness(t *testing.T) {
 	}
 }
 
-func TestValidateSignaturesStructural(t *testing.T) {
-	// Build a fake consensus with 5 authority signatures
-	var sigs []string
-	i := 0
-	for fp := range dirAuthorityFingerprints {
-		sigs = append(sigs, "directory-signature sha256 "+strings.ToUpper(fp)+" AABBCCDD\n-----BEGIN SIGNATURE-----\nfake\n-----END SIGNATURE-----")
-		i++
-		if i >= 5 {
-			break
-		}
-	}
-	text := "network-status-version 3 microdesc\n" + strings.Join(sigs, "\n") + "\n"
-	if err := ValidateSignaturesStructural(text); err != nil {
-		t.Fatalf("expected valid with 5 sigs: %v", err)
+func TestValidateSignaturesNilCertsReturnsError(t *testing.T) {
+	// When certs is nil or empty, ValidateSignatures must return an error
+	text := "network-status-version 3 microdesc\n"
+
+	if err := ValidateSignatures(text, nil); err == nil {
+		t.Fatal("expected error for nil certs")
+	} else if !strings.Contains(err.Error(), "no key certificates") {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 
-	// Only 3 signatures - should fail
-	text3 := "network-status-version 3 microdesc\n" + strings.Join(sigs[:3], "\n") + "\n"
-	if err := ValidateSignaturesStructural(text3); err == nil {
-		t.Fatal("expected error with only 3 sigs")
-	}
-
-	// No signatures
-	if err := ValidateSignaturesStructural("network-status-version 3 microdesc\n"); err == nil {
-		t.Fatal("expected error with no sigs")
-	}
-}
-
-func TestValidateSignaturesFallbackWhenNoCerts(t *testing.T) {
-	// When certs is nil, should fall back to structural validation
-	var sigs []string
-	i := 0
-	for fp := range dirAuthorityFingerprints {
-		sigs = append(sigs, "directory-signature sha256 "+strings.ToUpper(fp)+" AABBCCDD\n-----BEGIN SIGNATURE-----\nfake\n-----END SIGNATURE-----")
-		i++
-		if i >= 5 {
-			break
-		}
-	}
-	text := "network-status-version 3 microdesc\n" + strings.Join(sigs, "\n") + "\n"
-	if err := ValidateSignatures(text, nil); err != nil {
-		t.Fatalf("expected structural fallback to pass: %v", err)
+	if err := ValidateSignatures(text, []KeyCert{}); err == nil {
+		t.Fatal("expected error for empty certs")
+	} else if !strings.Contains(err.Error(), "no key certificates") {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }
 

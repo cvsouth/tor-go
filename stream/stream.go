@@ -45,22 +45,31 @@ type Stream struct {
 // Begin opens a new stream to the given target (host:port) through the circuit.
 // It sends RELAY_BEGIN and waits for RELAY_CONNECTED.
 func Begin(circ *circuit.Circuit, target string) (*Stream, error) {
+	// RELAY_BEGIN payload: "host:port\0" + flags(4 bytes, all zero)
+	payload := make([]byte, len(target)+1+4)
+	copy(payload, target)
+	return beginCommon(circ, circuit.RelayBegin, payload)
+}
+
+// BeginDir opens a new directory stream through the circuit.
+// It sends RELAY_BEGIN_DIR (with no payload) and waits for RELAY_CONNECTED.
+func BeginDir(circ *circuit.Circuit) (*Stream, error) {
+	return beginCommon(circ, circuit.RelayBeginDir, nil)
+}
+
+// beginCommon contains the shared logic for Begin and BeginDir.
+func beginCommon(circ *circuit.Circuit, cmd uint8, payload []byte) (*Stream, error) {
 	id := circuit.NextStreamID()
 
-	// Register with circuit dispatch BEFORE sending RELAY_BEGIN
+	// Register with circuit dispatch BEFORE sending the relay command
 	recv, err := circ.RegisterStream(id)
 	if err != nil {
 		return nil, fmt.Errorf("register stream: %w", err)
 	}
 
-	// RELAY_BEGIN payload: "host:port\0" + flags(4 bytes, all zero)
-	payload := make([]byte, len(target)+1+4)
-	copy(payload, target)
-	// null terminator and flags are already zero
-
-	if err := circ.SendRelay(circuit.RelayBegin, id, payload); err != nil {
+	if err := circ.SendRelay(cmd, id, payload); err != nil {
 		circ.UnregisterStream(id)
-		return nil, fmt.Errorf("send RELAY_BEGIN: %w", err)
+		return nil, fmt.Errorf("send relay cmd %d: %w", cmd, err)
 	}
 
 	// Wait for RELAY_CONNECTED (or RELAY_END on failure)

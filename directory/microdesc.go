@@ -4,10 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"time"
+
+	"github.com/cvsouth/tor-go/circuit"
 )
 
 // ParseMicrodescriptor extracts ntor-onion-key and Ed25519 identity from a microdescriptor.
@@ -39,8 +38,9 @@ func ParseMicrodescriptor(text string) (ntorKey [32]byte, ed25519Key [32]byte, h
 }
 
 // UpdateRelaysWithMicrodescriptors fetches microdescriptors for the given relays
-// and updates their ntor keys and Ed25519 identities.
-func UpdateRelaysWithMicrodescriptors(addr string, relays []Relay) error {
+// via a BEGIN_DIR stream on the provided circuit and updates their ntor keys
+// and Ed25519 identities.
+func UpdateRelaysWithMicrodescriptors(circ *circuit.Circuit, relays []Relay) error {
 	// Build digest → relay index map
 	digestToIdx := make(map[string]int)
 	var digests []string
@@ -57,13 +57,7 @@ func UpdateRelaysWithMicrodescriptors(addr string, relays []Relay) error {
 		return nil
 	}
 
-	client := &http.Client{
-		Timeout: 60 * time.Second,
-		Transport: &http.Transport{
-			DisableCompression: true, // Tor directory servers mishandle Accept-Encoding
-		},
-	}
-
+	populated := 0
 	for i := 0; i < len(digests); i += 92 {
 		end := i + 92
 		if end > len(digests) {
@@ -71,19 +65,7 @@ func UpdateRelaysWithMicrodescriptors(addr string, relays []Relay) error {
 		}
 		batch := digests[i:end]
 
-		url := fmt.Sprintf("http://%s/tor/micro/d/%s", addr, strings.Join(batch, "-"))
-		resp, err := client.Get(url)
-		if err != nil {
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
-			continue
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
-		_ = resp.Body.Close()
+		body, err := FetchViaBeginDir(circ, "/tor/micro/d/"+strings.Join(batch, "-"), 50*1024*1024)
 		if err != nil {
 			continue
 		}
@@ -111,7 +93,12 @@ func UpdateRelaysWithMicrodescriptors(addr string, relays []Relay) error {
 				relays[idx].Ed25519ID = ed25519Key
 				relays[idx].HasEd25519 = true
 			}
+			populated++
 		}
+	}
+
+	if populated == 0 {
+		return fmt.Errorf("all microdescriptor batches failed: no relays populated")
 	}
 
 	return nil

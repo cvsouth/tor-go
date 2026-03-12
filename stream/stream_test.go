@@ -1741,3 +1741,75 @@ func TestRestoreCircuitWindow(t *testing.T) {
 		t.Fatalf("CircuitWindow after restore = %d, want 6", cw)
 	}
 }
+
+func TestBeginDirSendsRelayBeginDir(t *testing.T) {
+	// Verify BeginDir sends RelayBeginDir (command 13) with nil payload
+	// and returns a stream with correct initial state.
+	const circID = uint32(0x80000001)
+	reader := newChannelCellReader()
+	circ, kbEnc, dbRelay := testStreamCircuit(circID, reader)
+	circ.StartReadLoop()
+
+	circuit.ResetNextStreamID(400)
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		connectedCell := buildRelayCell(circID, circuit.RelayConnected, 400, nil, kbEnc, dbRelay)
+		reader.ch <- connectedCell
+	}()
+
+	s, err := BeginDir(circ)
+	if err != nil {
+		t.Fatalf("BeginDir: %v", err)
+	}
+	if s.ID != 400 {
+		t.Fatalf("stream ID = %d, want 400", s.ID)
+	}
+	if s.recv == nil {
+		t.Fatal("stream receiver is nil")
+	}
+	if s.StreamWindow() != 500 {
+		t.Fatalf("streamWindow = %d, want 500", s.StreamWindow())
+	}
+	if s.Circuit != circ {
+		t.Fatal("stream circuit does not match")
+	}
+}
+
+func TestBeginDirFailsOnRelayEnd(t *testing.T) {
+	const circID = uint32(0x80000001)
+	reader := newChannelCellReader()
+	circ, kbEnc, dbRelay := testStreamCircuit(circID, reader)
+	circ.StartReadLoop()
+
+	circuit.ResetNextStreamID(401)
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		endCell := buildRelayCell(circID, circuit.RelayEnd, 401, []byte{3}, kbEnc, dbRelay)
+		reader.ch <- endCell
+	}()
+
+	_, err := BeginDir(circ)
+	if err == nil {
+		t.Fatal("expected error when relay rejects BeginDir with RELAY_END")
+	}
+}
+
+func TestBeginDirCircuitDied(t *testing.T) {
+	// Verify BeginDir returns an error when the circuit dies (reader closes).
+	const circID = uint32(0x80000001)
+	reader := newChannelCellReader()
+	circ, _, _ := testStreamCircuit(circID, reader)
+	circ.StartReadLoop()
+
+	circuit.ResetNextStreamID(402)
+
+	// Close the reader so the read loop ends, causing circuit-died.
+	close(reader.ch)
+
+	_, err := BeginDir(circ)
+	if err == nil {
+		t.Fatal("expected error when circuit dies during BeginDir")
+	}
+}

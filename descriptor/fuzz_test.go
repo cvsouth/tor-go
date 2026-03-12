@@ -5,10 +5,9 @@ import (
 )
 
 func FuzzParseDescriptor(f *testing.F) {
-	// Seed: minimal valid relay descriptor
-	f.Add("router TestRelay 1.2.3.4 9001 0 0\n" +
-		"fingerprint ABCD 1234 ABCD 1234 ABCD 1234 ABCD 1234 ABCD 1234\n" +
-		"ntor-onion-key AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n")
+	// Seed: dynamically generated valid descriptor with correct signature
+	validDesc, _ := buildSignedDescriptor(f)
+	f.Add(validDesc)
 
 	// Seed: empty
 	f.Add("")

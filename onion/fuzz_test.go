@@ -53,23 +53,6 @@ func FuzzDecodeOnion(f *testing.F) {
 	})
 }
 
-func FuzzDecodeChunked(f *testing.F) {
-	// Valid chunked encoding
-	f.Add("5\r\nhello\r\n6\r\n world\r\n0\r\n")
-	// Single chunk
-	f.Add("a\r\n0123456789\r\n0\r\n")
-	// Empty
-	f.Add("")
-	// Just terminator
-	f.Add("0\r\n")
-	// Malformed
-	f.Add("gg\r\nbad hex\r\n")
-
-	f.Fuzz(func(t *testing.T, data string) {
-		decodeChunked(data)
-	})
-}
-
 func FuzzParseDescriptorOuter(f *testing.F) {
 	// Minimal valid-ish descriptor
 	blob := base64.StdEncoding.EncodeToString([]byte("test-superencrypted-data"))

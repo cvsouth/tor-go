@@ -13,17 +13,14 @@ import (
 	"time"
 )
 
-// Known directory authority v3ident fingerprints (SHA-1 of identity key, hex uppercase).
-var dirAuthorityFingerprints = map[string]bool{
-	"F533C81CEF0BC0267857C99B2F471ADF249FA232": true, // moria1
-	"2F3DF9CA0E5D36F2685A2DA67184EB8DCB8CBA8C": true, // tor26
-	"E8A9C45EDE6D711294FADF8E7951F4DE6CA56B58": true, // dizum
-	"70849B868D606BAECFB6128C5E3D782029AA394F": true, // Faravahar
-	"23D15D965BC35114467363C165C4F724B64B4F66": true, // longclaw
-	"27102BC123E7AF1D4741AE047E160C91ADC76B21": true, // bastet
-	"0232AF901C31A04EE9848595AF9BB7620D4C5B2E": true, // dannenberg
-	"49015F787433103580E3B66A1707A00E60F2D15B": true, // maatuska
-	"ED03BB616EB2F60BEC80151114BB25CEF515B226": true, // gabelmoo
+// dirAuthorityFingerprints is derived from DirAuthorities in init().
+var dirAuthorityFingerprints map[string]bool
+
+func init() {
+	dirAuthorityFingerprints = make(map[string]bool, len(DirAuthorities))
+	for _, auth := range DirAuthorities {
+		dirAuthorityFingerprints[auth.V3Ident] = true
+	}
 }
 
 // ValidateFreshness checks that the consensus is currently valid.
@@ -45,10 +42,10 @@ func ValidateFreshness(c *Consensus) error {
 
 // ValidateSignatures cryptographically verifies RSA signatures on the consensus.
 // It requires at least 5 valid signatures from known directory authorities.
-// If certs is nil or empty, falls back to structural validation only.
+// Returns an error if certs is nil or empty.
 func ValidateSignatures(text string, certs []KeyCert) error {
 	if len(certs) == 0 {
-		return ValidateSignaturesStructural(text)
+		return fmt.Errorf("no key certificates available for signature verification")
 	}
 
 	// Build lookup: signing-key-digest -> KeyCert
@@ -103,36 +100,6 @@ func ValidateSignatures(text string, certs []KeyCert) error {
 
 	if len(verified) < 5 {
 		return fmt.Errorf("consensus has %d valid cryptographic signatures, need at least 5", len(verified))
-	}
-	return nil
-}
-
-// ValidateSignaturesStructural checks structural presence of signatures only.
-// Used as fallback when key certificates are unavailable.
-func ValidateSignaturesStructural(text string) error {
-	seen := make(map[string]bool)
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if !strings.HasPrefix(line, "directory-signature ") {
-			continue
-		}
-		parts := strings.Fields(line)
-		var identity string
-		switch len(parts) {
-		case 3:
-			identity = parts[1]
-		case 4:
-			identity = parts[2]
-		default:
-			continue
-		}
-		identity = strings.ToUpper(identity)
-		if dirAuthorityFingerprints[identity] {
-			seen[identity] = true
-		}
-	}
-	if len(seen) < 5 {
-		return fmt.Errorf("consensus has signatures from %d authorities, need at least 5", len(seen))
 	}
 	return nil
 }
