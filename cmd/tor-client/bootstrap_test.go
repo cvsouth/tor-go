@@ -75,9 +75,6 @@ func TestLoadFromCacheHitNoCircuit(t *testing.T) {
 
 	// Load from cache — no circuit should be needed.
 	data := loadFromCache(cache)
-	if data == nil {
-		t.Fatal("expected non-nil data from cache")
-	}
 	if data.consensusText != consensusText {
 		t.Fatalf("consensus text mismatch: got %d bytes, want %d bytes", len(data.consensusText), len(consensusText))
 	}
@@ -375,6 +372,7 @@ func TestE2EBootstrapSequence(t *testing.T) {
 	}
 	if data == nil {
 		t.Fatal("failed to bootstrap from any authority")
+		return // unreachable; helps staticcheck SA5011
 	}
 	t.Logf("bootstrapped from authority %s", succeededAuth)
 
@@ -415,6 +413,7 @@ func TestE2EBootstrapSequence(t *testing.T) {
 	cachedData := loadFromCache(cache)
 	if cachedData == nil {
 		t.Fatal("loadFromCache returned nil after saving")
+		return // unreachable; helps staticcheck SA5011
 	}
 	if cachedData.consensusText != data.consensusText {
 		t.Fatal("cached consensus text differs from original")

@@ -135,6 +135,7 @@ func TestParseDescriptorSigningKeyField(t *testing.T) {
 	// SigningKey must be non-nil and match the key we generated
 	if info.SigningKey == nil {
 		t.Fatal("SigningKey is nil")
+		return // unreachable; helps staticcheck SA5011
 	}
 	if info.SigningKey.N.Cmp(privKey.N) != 0 {
 		t.Fatal("SigningKey.N does not match the generated key")
@@ -166,6 +167,7 @@ func TestParseDescriptorSignatureBytesField(t *testing.T) {
 	// SignatureBytes must be non-nil and non-empty
 	if info.SignatureBytes == nil {
 		t.Fatal("SignatureBytes is nil")
+		return // unreachable; helps staticcheck SA5011
 	}
 	if len(info.SignatureBytes) == 0 {
 		t.Fatal("SignatureBytes is empty")

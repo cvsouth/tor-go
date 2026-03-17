@@ -181,9 +181,6 @@ func TestBackwardDigest(t *testing.T) {
 	}
 
 	d1 := circ.BackwardDigest()
-	if d1 == nil {
-		t.Fatal("BackwardDigest returned nil")
-	}
 	if len(d1) != 20 { // SHA-1 output
 		t.Fatalf("digest length = %d, want 20", len(d1))
 	}

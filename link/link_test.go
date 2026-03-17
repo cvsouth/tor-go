@@ -47,9 +47,6 @@ func TestLinkRegisterCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterCircuit: %v", err)
 	}
-	if cr == nil {
-		t.Fatal("RegisterCircuit returned nil")
-	}
 	if cap(cr.Cells) != 32 {
 		t.Fatalf("channel capacity = %d, want 32", cap(cr.Cells))
 	}
