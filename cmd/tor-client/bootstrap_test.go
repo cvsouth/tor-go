@@ -75,9 +75,6 @@ func TestLoadFromCacheHitNoCircuit(t *testing.T) {
 
 	// Load from cache — no circuit should be needed.
 	data := loadFromCache(cache)
-	if data == nil {
-		t.Fatal("expected non-nil data from cache")
-	}
 	if data.consensusText != consensusText {
 		t.Fatalf("consensus text mismatch: got %d bytes, want %d bytes", len(data.consensusText), len(consensusText))
 	}
