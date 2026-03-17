@@ -131,9 +131,6 @@ func TestRegisterStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterStream: %v", err)
 	}
-	if sr == nil {
-		t.Fatal("RegisterStream returned nil")
-	}
 	if cap(sr.Cells) != 64 {
 		t.Fatalf("channel capacity = %d, want 64", cap(sr.Cells))
 	}
