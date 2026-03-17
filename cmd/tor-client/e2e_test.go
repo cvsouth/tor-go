@@ -233,6 +233,7 @@ func TestE2EConsensusAndSignatures(t *testing.T) {
 	}
 	if data == nil {
 		t.Fatal("failed to bootstrap from any authority")
+		return // unreachable; helps staticcheck SA5011
 	}
 
 	if len(data.keyCerts) < 5 {
