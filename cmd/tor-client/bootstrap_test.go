@@ -372,6 +372,7 @@ func TestE2EBootstrapSequence(t *testing.T) {
 	}
 	if data == nil {
 		t.Fatal("failed to bootstrap from any authority")
+		return // unreachable; helps staticcheck SA5011
 	}
 	t.Logf("bootstrapped from authority %s", succeededAuth)
 
@@ -412,6 +413,7 @@ func TestE2EBootstrapSequence(t *testing.T) {
 	cachedData := loadFromCache(cache)
 	if cachedData == nil {
 		t.Fatal("loadFromCache returned nil after saving")
+		return // unreachable; helps staticcheck SA5011
 	}
 	if cachedData.consensusText != data.consensusText {
 		t.Fatal("cached consensus text differs from original")

@@ -78,6 +78,7 @@ func fetchConsensusAndCerts(t *testing.T) (string, *directory.Consensus, []direc
 	}
 	if data == nil {
 		t.Fatal("failed to bootstrap from any authority")
+		return "", nil, nil // unreachable; helps staticcheck SA5011
 	}
 
 	if err := directory.ValidateSignatures(data.consensusText, data.keyCerts); err != nil {
