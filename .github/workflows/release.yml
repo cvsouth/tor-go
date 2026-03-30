@@ -156,6 +156,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Skip if another workflow run already created this release
+          if gh release view "${{ steps.version.outputs.tag_name }}" > /dev/null 2>&1; then
+            echo "Release ${{ steps.version.outputs.tag_name }} already exists, skipping."
+            exit 0
+          fi
+
           # Create release with GitHub CLI and auto-generated release notes
           gh release create ${{ steps.version.outputs.tag_name }} \
             --title "${{ steps.version.outputs.next_version }}" \
