@@ -144,7 +144,7 @@ jobs:
 
       - name: Generate SBOM
         run: |
-          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
           cyclonedx-gomod app -main cmd/tor-client -json -output release/tor-client.cdx.json .
 
       - name: Generate SLSA provenance attestations
