@@ -132,7 +132,9 @@ jobs:
         run: |
           cosign sign-blob release/checksums.txt \
             --yes \
-            --bundle release/checksums.txt.sigstore.json
+            --bundle release/checksums.txt.sigstore.json \
+            --output-signature release/checksums.txt.sig \
+            --output-certificate release/checksums.txt.pem
 
       - name: Sign binaries with Cosign
         run: |
@@ -142,7 +144,9 @@ jobs:
             esac
             cosign sign-blob "$binary" \
               --yes \
-              --bundle "${binary}.sigstore.json"
+              --bundle "${binary}.sigstore.json" \
+              --output-signature "${binary}.sig" \
+              --output-certificate "${binary}.pem"
           done
 
       - name: Generate SBOM
@@ -180,14 +184,24 @@ jobs:
             --generate-notes \
             ./release/tor-client-linux-amd64 \
             ./release/tor-client-linux-amd64.sigstore.json \
+            ./release/tor-client-linux-amd64.sig \
+            ./release/tor-client-linux-amd64.pem \
             ./release/tor-client-linux-arm64 \
             ./release/tor-client-linux-arm64.sigstore.json \
+            ./release/tor-client-linux-arm64.sig \
+            ./release/tor-client-linux-arm64.pem \
             ./release/tor-client-windows-amd64.exe \
             ./release/tor-client-windows-amd64.exe.sigstore.json \
+            ./release/tor-client-windows-amd64.exe.sig \
+            ./release/tor-client-windows-amd64.exe.pem \
             ./release/tor-client-darwin-amd64 \
             ./release/tor-client-darwin-amd64.sigstore.json \
+            ./release/tor-client-darwin-amd64.sig \
+            ./release/tor-client-darwin-amd64.pem \
             ./release/tor-client-darwin-arm64 \
             ./release/tor-client-darwin-arm64.sigstore.json \
+            ./release/tor-client-darwin-arm64.sig \
+            ./release/tor-client-darwin-arm64.pem \
             ./release/checksums.txt \
             ./release/checksums.txt.sigstore.json \
             ./release/tor-client.cdx.json \
