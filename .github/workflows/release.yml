@@ -140,7 +140,7 @@ jobs:
         run: |
           for binary in release/tor-client-*; do
             case "$binary" in
-              *.sig|*.pem|*.sigstore.json) continue ;;
+              *.sigstore.json) continue ;;
             esac
             cosign sign-blob "$binary" \
               --yes \
@@ -204,7 +204,5 @@ jobs:
             ./release/tor-client-darwin-arm64.pem \
             ./release/checksums.txt \
             ./release/checksums.txt.sigstore.json \
-            ./release/checksums.txt.sig \
-            ./release/checksums.txt.pem \
             ./release/tor-client.cdx.json \
             ./release/tor-client.intoto.jsonl
