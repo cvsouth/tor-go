@@ -137,6 +137,9 @@ jobs:
       - name: Sign binaries with Cosign
         run: |
           for binary in release/tor-client-*; do
+            case "$binary" in
+              *.sigstore.json) continue ;;
+            esac
             cosign sign-blob "$binary" \
               --yes \
               --bundle "${binary}.sigstore.json"
@@ -148,9 +151,18 @@ jobs:
           cyclonedx-gomod app -main cmd/tor-client -json -output release/tor-client.cdx.json .
 
       - name: Generate SLSA provenance attestations
+        id: attest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v2.1.0
         with:
-          subject-path: 'release/tor-client-*'
+          subject-path: 'release/tor-client-linux-amd64,release/tor-client-linux-arm64,release/tor-client-windows-amd64.exe,release/tor-client-darwin-amd64,release/tor-client-darwin-arm64'
+
+      - name: Extract DSSE envelope as .intoto.jsonl
+        run: |
+          # Scorecard's releasesHaveProvenance probe recognises .intoto.jsonl on
+          # release assets. attest-build-provenance emits a Sigstore bundle;
+          # extract its DSSE envelope into the wire format Scorecard expects.
+          jq -c '.dsseEnvelope' "${{ steps.attest.outputs.bundle-path }}" \
+            > release/tor-client.intoto.jsonl
 
       - name: Create Release
         env:
@@ -178,4 +190,5 @@ jobs:
             ./release/tor-client-darwin-arm64.sigstore.json \
             ./release/checksums.txt \
             ./release/checksums.txt.sigstore.json \
-            ./release/tor-client.cdx.json
+            ./release/tor-client.cdx.json \
+            ./release/tor-client.intoto.jsonl
