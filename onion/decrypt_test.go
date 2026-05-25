@@ -4,11 +4,10 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha3"
 	"crypto/subtle"
 	"encoding/binary"
 	"testing"
-
-	"golang.org/x/crypto/sha3"
 )
 
 // encryptDescriptorLayer encrypts plaintext using the same scheme as DecryptDescriptorLayer,
@@ -35,8 +34,8 @@ func encryptDescriptorLayer(plaintext, secretData, subcredential []byte, revisio
 	kdfInput = append(kdfInput, []byte(stringConstant)...)
 
 	keys := make([]byte, totalKeys)
-	shake := sha3.NewShake256()
-	shake.Write(kdfInput)
+	shake := sha3.NewSHAKE256()
+	_, _ = shake.Write(kdfInput)
 	_, _ = shake.Read(keys)
 
 	secretKey := keys[:sKeyLen]

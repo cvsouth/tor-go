@@ -246,7 +246,7 @@ func TestNoReceiveRelayExported(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		close(reader.ch) // cause EOF to unblock ReceiveRelaySetup
 	}()
-	_, _, _, _, err := circ.ReceiveRelaySetup()
+	_, _, _, _, err := circ.ReceiveRelaySetup(0)
 	if err == nil {
 		t.Fatal("expected error from ReceiveRelaySetup with closed reader")
 	}
@@ -260,7 +260,7 @@ func TestReceiveRelaySetupFailsAfterReadLoop(t *testing.T) {
 
 	circ.StartReadLoop()
 
-	_, _, _, _, err := circ.ReceiveRelaySetup()
+	_, _, _, _, err := circ.ReceiveRelaySetup(0)
 	if err == nil {
 		t.Fatal("expected error calling ReceiveRelaySetup after StartReadLoop")
 	}
