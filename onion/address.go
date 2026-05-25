@@ -1,12 +1,12 @@
 package onion
 
 import (
+	"crypto/sha3"
 	"encoding/base32"
 	"fmt"
 	"strings"
 
 	"filippo.io/edwards25519"
-	"golang.org/x/crypto/sha3"
 )
 
 // DecodeOnion decodes a v3 .onion address and returns the 32-byte Ed25519 public key.
@@ -39,9 +39,9 @@ func DecodeOnion(address string) ([32]byte, error) {
 
 	// Verify checksum: SHA3-256(".onion checksum" || pubkey || version)[:2]
 	h := sha3.New256()
-	h.Write([]byte(".onion checksum"))
-	h.Write(pubkey[:])
-	h.Write([]byte{version})
+	_, _ = h.Write([]byte(".onion checksum"))
+	_, _ = h.Write(pubkey[:])
+	_, _ = h.Write([]byte{version})
 	expectedChecksum := h.Sum(nil)[:2]
 
 	if checksum[0] != expectedChecksum[0] || checksum[1] != expectedChecksum[1] {

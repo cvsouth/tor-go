@@ -248,14 +248,16 @@ func (c *Circuit) SendRelay(relayCmd uint8, streamID uint16, data []byte) error 
 	return err
 }
 
-// ReceiveRelaySetup reads and decrypts a relay cell from the circuit.
-// It is intended ONLY for use during circuit setup, before StartReadLoop is called.
-// Once the read loop is running, use RegisterStream + channel reads instead.
-// Returns an error if the read loop has already been started.
+// ReceiveRelaySetup reads and decrypts a relay cell from the circuit, bounded
+// by timeout. A zero or negative timeout disables the deadline (caller is
+// responsible for unblocking). It is intended ONLY for use during circuit
+// setup, before StartReadLoop is called. Once the read loop is running, use
+// RegisterStream + channel reads instead. Returns an error if the read loop
+// has already been started.
 //
 // setupMu serializes this with StartReadLoop: if ReceiveRelaySetup is in-flight,
 // StartReadLoop blocks until it completes, preventing a TOCTOU race on cell reads.
-func (c *Circuit) ReceiveRelaySetup() (hopIdx int, relayCmd uint8, streamID uint16, data []byte, err error) {
+func (c *Circuit) ReceiveRelaySetup(timeout time.Duration) (hopIdx int, relayCmd uint8, streamID uint16, data []byte, err error) {
 	c.setupMu.Lock()
 	c.streamsMu.RLock()
 	started := c.readLoopStarted
@@ -267,7 +269,11 @@ func (c *Circuit) ReceiveRelaySetup() (hopIdx int, relayCmd uint8, streamID uint
 	c.setupWg.Add(1)
 	c.setupMu.Unlock()
 	defer c.setupWg.Done()
-	hopIdx, relayCmd, streamID, data, _, err = c.receiveRelay()
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	hopIdx, relayCmd, streamID, data, _, err = c.receiveRelayBefore(deadline)
 	return
 }
 
@@ -278,11 +284,19 @@ func (c *Circuit) ReceiveRelaySetup() (hopIdx int, relayCmd uint8, streamID uint
 // The returned digest is the backward digest snapshot captured under rmu after decryption,
 // for use in SENDME v1 flow control.
 func (c *Circuit) receiveRelay() (hopIdx int, relayCmd uint8, streamID uint16, data []byte, digest []byte, err error) {
+	return c.receiveRelayBefore(time.Time{})
+}
+
+// receiveRelayBefore behaves like receiveRelay but enforces a deadline on each
+// underlying cell read when the cell reader is a *link.CircuitReceiver. A zero
+// deadline disables the timeout. Test readers that aren't CircuitReceivers
+// ignore the deadline.
+func (c *Circuit) receiveRelayBefore(deadline time.Time) (hopIdx int, relayCmd uint8, streamID uint16, data []byte, digest []byte, err error) {
 	reader := c.getCellReader()
 	for {
-		incoming, err := reader.ReadCell()
-		if err != nil {
-			return 0, 0, 0, nil, nil, fmt.Errorf("read cell: %w", err)
+		incoming, rerr := readCellBefore(reader, deadline)
+		if rerr != nil {
+			return 0, 0, 0, nil, nil, fmt.Errorf("read cell: %w", rerr)
 		}
 
 		cmd := incoming.Command()
@@ -309,6 +323,33 @@ func (c *Circuit) receiveRelay() (hopIdx int, relayCmd uint8, streamID uint16, d
 		default:
 			return 0, 0, 0, nil, nil, fmt.Errorf("unexpected cell command %d on circuit", cmd)
 		}
+	}
+}
+
+// readCellBefore reads a cell from reader, enforcing deadline when reader is a
+// *link.CircuitReceiver. A zero deadline disables the timeout.
+func readCellBefore(reader CellReader, deadline time.Time) (cell.Cell, error) {
+	if deadline.IsZero() {
+		return reader.ReadCell()
+	}
+	cr, ok := reader.(*link.CircuitReceiver)
+	if !ok {
+		return reader.ReadCell()
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return nil, fmt.Errorf("timeout reading cell")
+	}
+	select {
+	case cl, open := <-cr.Cells:
+		if !open {
+			return nil, fmt.Errorf("circuit receiver channel closed")
+		}
+		return cl, nil
+	case <-cr.Done:
+		return nil, fmt.Errorf("circuit receiver done")
+	case <-time.After(remaining):
+		return nil, fmt.Errorf("timeout reading cell")
 	}
 }
 

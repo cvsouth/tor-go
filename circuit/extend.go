@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/cvsouth/tor-go/cell"
 	"github.com/cvsouth/tor-go/descriptor"
 	"github.com/cvsouth/tor-go/ntor"
 )
+
+// extendTimeout bounds the wait for an EXTENDED2 reply from the relay.
+// Matches the createTimeout used for CREATED2 in circuit.go.
+const extendTimeout = 30 * time.Second
 
 // LinkSpecType constants for EXTEND2 link specifiers.
 const (
@@ -110,10 +115,12 @@ func (c *Circuit) Extend(relayInfo *descriptor.RelayInfo, logger *slog.Logger) e
 
 // receiveExtended2 waits for an EXTENDED2 relay cell and returns the 64-byte
 // server handshake data, or an error if the response is invalid or unexpected.
+// The wait is bounded by extendTimeout so a silent relay cannot stall circuit
+// build indefinitely.
 func (c *Circuit) receiveExtended2() ([64]byte, error) {
 	var serverData [64]byte
 
-	_, relayCmd, _, data, _, err := c.receiveRelay()
+	_, relayCmd, _, data, _, err := c.receiveRelayBefore(time.Now().Add(extendTimeout))
 	if err != nil {
 		return serverData, fmt.Errorf("receive: %w", err)
 	}

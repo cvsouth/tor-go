@@ -1,11 +1,10 @@
 package onion
 
 import (
+	"crypto/sha3"
 	"encoding/base32"
 	"strings"
 	"testing"
-
-	"golang.org/x/crypto/sha3"
 )
 
 func TestDecodeOnionKnownAddresses(t *testing.T) {
@@ -38,9 +37,9 @@ func TestDecodeOnionRoundTrip(t *testing.T) {
 	var buf [35]byte
 	copy(buf[:32], pk[:])
 	h := sha3.New256()
-	h.Write([]byte(".onion checksum"))
-	h.Write(pk[:])
-	h.Write([]byte{0x03})
+	_, _ = h.Write([]byte(".onion checksum"))
+	_, _ = h.Write(pk[:])
+	_, _ = h.Write([]byte{0x03})
 	checksum := h.Sum(nil)[:2]
 	buf[32] = checksum[0]
 	buf[33] = checksum[1]

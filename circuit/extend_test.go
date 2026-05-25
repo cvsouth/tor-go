@@ -2,9 +2,15 @@ package circuit
 
 import (
 	"encoding/binary"
+	"io"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/cvsouth/tor-go/cell"
 	"github.com/cvsouth/tor-go/descriptor"
+	"github.com/cvsouth/tor-go/link"
 )
 
 func TestBuildExtend2Payload(t *testing.T) {
@@ -84,5 +90,84 @@ func checkHandshakeData(t *testing.T, payload []byte, off int, clientData [84]by
 		if payload[off+i] != clientData[i] {
 			t.Fatalf("HDATA[%d] = %d, want %d", i, payload[off+i], clientData[i])
 		}
+	}
+}
+
+// TestReceiveExtended2Timeout verifies that receiveExtended2 returns a timeout
+// error when no cell arrives, rather than blocking forever. This guards against
+// regressing the hang that made TestE2ECircuitRetry consume the full test
+// budget when a relay went silent mid-handshake.
+func TestReceiveExtended2Timeout(t *testing.T) {
+	const circID = uint32(0x80000001)
+	l := &link.Link{Writer: cell.NewWriter(io.Discard)}
+	cr, err := l.RegisterCircuit(circID)
+	if err != nil {
+		t.Fatalf("RegisterCircuit: %v", err)
+	}
+
+	circ := &Circuit{
+		ID:         circID,
+		Link:       l,
+		cellReader: cr,
+		streams:    make(map[uint16]*StreamReceiver),
+		done:       make(chan struct{}),
+	}
+
+	// Use a small deadline directly via receiveRelayBefore: receiveExtended2
+	// hard-codes extendTimeout (30s), which is too long for a unit test.
+	start := time.Now()
+	_, _, _, _, _, err = circ.receiveRelayBefore(time.Now().Add(50 * time.Millisecond))
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("expected timeout error, got: %v", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("receiveRelayBefore took %v, expected ~50ms", elapsed)
+	}
+}
+
+// TestReceiveExtended2DeadlineUnblocksOnLinkDone verifies the deadline path
+// still respects Done (link death) before the timeout fires.
+func TestReceiveExtended2DeadlineUnblocksOnLinkDone(t *testing.T) {
+	const circID = uint32(0x80000001)
+	l := &link.Link{Writer: cell.NewWriter(io.Discard)}
+	cr, err := l.RegisterCircuit(circID)
+	if err != nil {
+		t.Fatalf("RegisterCircuit: %v", err)
+	}
+
+	circ := &Circuit{
+		ID:         circID,
+		Link:       l,
+		cellReader: cr,
+		streams:    make(map[uint16]*StreamReceiver),
+		done:       make(chan struct{}),
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(20 * time.Millisecond)
+		l.UnregisterCircuit(circID) // closes cr.Done
+	}()
+
+	start := time.Now()
+	_, _, _, _, _, err = circ.receiveRelayBefore(time.Now().Add(2 * time.Second))
+	elapsed := time.Since(start)
+	wg.Wait()
+
+	if err == nil {
+		t.Fatal("expected error from closed receiver, got nil")
+	}
+	if strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("expected receiver-done error, got timeout: %v", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("receiveRelayBefore took %v, expected ~20ms", elapsed)
 	}
 }

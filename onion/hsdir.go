@@ -3,12 +3,11 @@ package onion
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha3"
 	"encoding/binary"
 	"fmt"
 	"math/big"
 	"sort"
-
-	"golang.org/x/crypto/sha3"
 
 	"github.com/cvsouth/tor-go/directory"
 )
@@ -104,15 +103,15 @@ func PickRandomHSDir(candidates []*directory.Relay) (*directory.Relay, error) {
 // SHA3-256("store-at-idx" | blinded_public_key | INT_8(replicanum) | INT_8(period_length) | INT_8(period_num))
 func serviceIndex(blindedKey [32]byte, replicanum, periodLength, periodNum int64) [32]byte {
 	h := sha3.New256()
-	h.Write([]byte("store-at-idx"))
-	h.Write(blindedKey[:])
+	_, _ = h.Write([]byte("store-at-idx"))
+	_, _ = h.Write(blindedKey[:])
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], uint64(replicanum))
-	h.Write(buf[:])
+	_, _ = h.Write(buf[:])
 	binary.BigEndian.PutUint64(buf[:], uint64(periodLength))
-	h.Write(buf[:])
+	_, _ = h.Write(buf[:])
 	binary.BigEndian.PutUint64(buf[:], uint64(periodNum))
-	h.Write(buf[:])
+	_, _ = h.Write(buf[:])
 	var idx [32]byte
 	copy(idx[:], h.Sum(nil))
 	return idx
@@ -122,14 +121,14 @@ func serviceIndex(blindedKey [32]byte, replicanum, periodLength, periodNum int64
 // SHA3-256("node-idx" | node_identity | shared_random_value | INT_8(period_num) | INT_8(period_length))
 func relayIndex(nodeIdentity, srv []byte, periodNum, periodLength int64) [32]byte {
 	h := sha3.New256()
-	h.Write([]byte("node-idx"))
-	h.Write(nodeIdentity)
-	h.Write(srv)
+	_, _ = h.Write([]byte("node-idx"))
+	_, _ = h.Write(nodeIdentity)
+	_, _ = h.Write(srv)
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], uint64(periodNum))
-	h.Write(buf[:])
+	_, _ = h.Write(buf[:])
 	binary.BigEndian.PutUint64(buf[:], uint64(periodLength))
-	h.Write(buf[:])
+	_, _ = h.Write(buf[:])
 	var idx [32]byte
 	copy(idx[:], h.Sum(nil))
 	return idx

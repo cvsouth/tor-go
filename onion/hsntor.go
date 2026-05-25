@@ -3,11 +3,11 @@ package onion
 import (
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha3"
 	"encoding/binary"
 	"fmt"
 
 	"golang.org/x/crypto/curve25519"
-	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -72,8 +72,8 @@ func HsNtorClientHandshake(B [32]byte, authKey []byte, subcredential [32]byte) (
 	kdfInput = append(kdfInput, info...)
 
 	keys := make([]byte, sKeyLen+macKeyLen)
-	shake := sha3.NewShake256()
-	shake.Write(kdfInput)
+	shake := sha3.NewSHAKE256()
+	_, _ = shake.Write(kdfInput)
 	_, _ = shake.Read(keys)
 
 	var encKey, macKey [32]byte
@@ -152,8 +152,8 @@ func HsNtorExpandKeys(ntorKeySeed []byte) (df, db [32]byte, kf, kb [32]byte) {
 
 	totalLen := 32 + 32 + sKeyLen + sKeyLen // SHA3_256_LEN*2 + S_KEY_LEN*2
 	keys := make([]byte, totalLen)
-	shake := sha3.NewShake256()
-	shake.Write(kdfInput)
+	shake := sha3.NewSHAKE256()
+	_, _ = shake.Write(kdfInput)
 	_, _ = shake.Read(keys)
 
 	copy(df[:], keys[0:32])
@@ -206,8 +206,8 @@ func hsMAC(key, message []byte) []byte {
 	h := sha3.New256()
 	var lenBuf [8]byte
 	binary.BigEndian.PutUint64(lenBuf[:], uint64(len(key)))
-	h.Write(lenBuf[:])
-	h.Write(key)
-	h.Write(message)
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write(key)
+	_, _ = h.Write(message)
 	return h.Sum(nil)
 }

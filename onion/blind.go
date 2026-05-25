@@ -1,11 +1,11 @@
 package onion
 
 import (
+	"crypto/sha3"
 	"encoding/binary"
 	"time"
 
 	"filippo.io/edwards25519"
-	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -47,10 +47,10 @@ func BlindPublicKey(pubkey [32]byte, periodNumber int64, periodLength int64) ([3
 	// Compute blinding factor h = SHA3-256(BLIND_STRING | A | s | B | N)
 	// For client-side, s (secret) is empty
 	h := sha3.New256()
-	h.Write(blindString)
-	h.Write(pubkey[:])
-	h.Write(ed25519Basepoint)
-	h.Write(nonce)
+	_, _ = h.Write(blindString)
+	_, _ = h.Write(pubkey[:])
+	_, _ = h.Write(ed25519Basepoint)
+	_, _ = h.Write(nonce)
 	hBytes := h.Sum(nil)
 
 	// h as scalar (SetBytesWithClamping handles clamping)
@@ -77,15 +77,15 @@ func BlindPublicKey(pubkey [32]byte, periodNumber int64, periodLength int64) ([3
 func Subcredential(pubkey [32]byte, blindedKey [32]byte) [32]byte {
 	// Credential
 	credHash := sha3.New256()
-	credHash.Write([]byte("credential"))
-	credHash.Write(pubkey[:])
+	_, _ = credHash.Write([]byte("credential"))
+	_, _ = credHash.Write(pubkey[:])
 	credential := credHash.Sum(nil)
 
 	// Subcredential
 	subHash := sha3.New256()
-	subHash.Write([]byte("subcredential"))
-	subHash.Write(credential)
-	subHash.Write(blindedKey[:])
+	_, _ = subHash.Write([]byte("subcredential"))
+	_, _ = subHash.Write(credential)
+	_, _ = subHash.Write(blindedKey[:])
 	var subcred [32]byte
 	copy(subcred[:], subHash.Sum(nil))
 	return subcred
