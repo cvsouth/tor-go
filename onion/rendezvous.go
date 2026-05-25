@@ -4,12 +4,11 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha3"
 	"encoding"
 	"encoding/binary"
 	"fmt"
 	"net"
-
-	"golang.org/x/crypto/sha3"
 )
 
 // RendezvousKeys holds the derived keys for an onion service circuit.
@@ -189,9 +188,9 @@ func BuildRendLinkSpecs(identity [20]byte, address string, orPort uint16, ed2551
 // onion service circuit (as opposed to SHA-1 for regular circuit hops).
 func NewRendezvousDigests(df, db [32]byte) (hashDf, hashDb sha3Hash) {
 	hDf := sha3.New256()
-	hDf.Write(df[:])
+	_, _ = hDf.Write(df[:])
 	hDb := sha3.New256()
-	hDb.Write(db[:])
+	_, _ = hDb.Write(db[:])
 	return sha3Hash{hDf}, sha3Hash{hDb}
 }
 

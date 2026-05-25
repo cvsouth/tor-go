@@ -3,11 +3,10 @@ package onion
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/sha3"
 	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
-
-	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -54,8 +53,8 @@ func DecryptDescriptorLayer(encrypted []byte, secretData, subcredential []byte, 
 	kdfInput = append(kdfInput, []byte(stringConstant)...)
 
 	keys := make([]byte, totalKeys)
-	shake := sha3.NewShake256()
-	shake.Write(kdfInput)
+	shake := sha3.NewSHAKE256()
+	_, _ = shake.Write(kdfInput)
 	_, _ = shake.Read(keys)
 
 	secretKey := keys[:sKeyLen]
@@ -86,11 +85,11 @@ func computeMAC(macKey, salt, encrypted []byte) []byte {
 	h := sha3.New256()
 	var lenBuf [8]byte
 	binary.BigEndian.PutUint64(lenBuf[:], uint64(len(macKey)))
-	h.Write(lenBuf[:])
-	h.Write(macKey)
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write(macKey)
 	binary.BigEndian.PutUint64(lenBuf[:], uint64(len(salt)))
-	h.Write(lenBuf[:])
-	h.Write(salt)
-	h.Write(encrypted)
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write(salt)
+	_, _ = h.Write(encrypted)
 	return h.Sum(nil)
 }

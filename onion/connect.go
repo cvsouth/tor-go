@@ -15,6 +15,16 @@ import (
 	"github.com/cvsouth/tor-go/stream"
 )
 
+// Timeouts for the introduction/rendezvous protocol. They bound waits for the
+// relay/service to reply so a silent peer can't stall a connect attempt
+// indefinitely. RENDEZVOUS2 gets a longer budget because it requires the
+// service to receive INTRODUCE and build a rendezvous circuit back.
+const (
+	rendEstablishedTimeout = 30 * time.Second
+	introduceAckTimeout    = 30 * time.Second
+	rendezvous2Timeout     = 60 * time.Second
+)
+
 // ConnectResult holds the information needed to establish a stream to an
 // onion service after the introduction/rendezvous protocol completes.
 type ConnectResult struct {
@@ -207,7 +217,7 @@ func ConnectOnionService(
 	}
 
 	// 4. Wait for RENDEZVOUS_ESTABLISHED.
-	_, relayCmd, _, _, err := rendBuilt.Circuit.ReceiveRelaySetup()
+	_, relayCmd, _, _, err := rendBuilt.Circuit.ReceiveRelaySetup(rendEstablishedTimeout)
 	if err != nil {
 		_ = rendBuilt.LinkCloser.Close()
 		return nil, fmt.Errorf("receive RENDEZVOUS_ESTABLISHED: %w", err)
@@ -317,7 +327,7 @@ func tryIntroPoint(
 	}
 
 	// Wait for INTRODUCE_ACK on the intro circuit.
-	_, relayCmd, _, ackData, err := introBuilt.Circuit.ReceiveRelaySetup()
+	_, relayCmd, _, ackData, err := introBuilt.Circuit.ReceiveRelaySetup(introduceAckTimeout)
 	if err != nil {
 		return fmt.Errorf("receive INTRODUCE_ACK: %w", err)
 	}
@@ -335,7 +345,7 @@ func tryIntroPoint(
 
 	// Wait for RENDEZVOUS2 on the rendezvous circuit.
 	logger.Info("waiting for RENDEZVOUS2")
-	_, relayCmd, _, rend2Data, err := rendBuilt.Circuit.ReceiveRelaySetup()
+	_, relayCmd, _, rend2Data, err := rendBuilt.Circuit.ReceiveRelaySetup(rendezvous2Timeout)
 	if err != nil {
 		return fmt.Errorf("receive RENDEZVOUS2: %w", err)
 	}
