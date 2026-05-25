@@ -585,7 +585,7 @@ func TestReceiveRelaySetupBlocksStartReadLoop(t *testing.T) {
 	setupDone := make(chan struct{})
 	go func() {
 		defer close(setupDone)
-		_, _, _, _, _ = circ.ReceiveRelaySetup()
+		_, _, _, _, _ = circ.ReceiveRelaySetup(0)
 	}()
 
 	// Wait for ReceiveRelaySetup to actually call ReadCell (proves it's in-flight)
@@ -643,7 +643,7 @@ func TestReceiveRelaySetupAfterStartReadLoopFails(t *testing.T) {
 
 	circ.StartReadLoop()
 
-	_, _, _, _, err := circ.ReceiveRelaySetup()
+	_, _, _, _, err := circ.ReceiveRelaySetup(0)
 	if err == nil {
 		t.Fatal("expected error calling ReceiveRelaySetup after StartReadLoop")
 	}
@@ -671,7 +671,7 @@ func TestConcurrentReceiveRelaySetupAndStartReadLoop(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			_, _, _, _, _ = circ.ReceiveRelaySetup()
+			_, _, _, _, _ = circ.ReceiveRelaySetup(0)
 		}()
 
 		go func() {
