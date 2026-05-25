@@ -2,11 +2,11 @@ package onion
 
 import (
 	"bytes"
+	"crypto/sha3"
 	"encoding/hex"
 	"testing"
 
 	"golang.org/x/crypto/curve25519"
-	"golang.org/x/crypto/sha3"
 )
 
 func mustDecodeHex(s string) []byte {
@@ -67,8 +67,8 @@ func TestHsNtorSpecTestVectors(t *testing.T) {
 	kdfInput = append(kdfInput, info...)
 
 	keys := make([]byte, sKeyLen+macKeyLen)
-	shake := sha3.NewShake256()
-	shake.Write(kdfInput)
+	shake := sha3.NewSHAKE256()
+	_, _ = shake.Write(kdfInput)
 	_, _ = shake.Read(keys)
 
 	encKey := keys[:sKeyLen]
