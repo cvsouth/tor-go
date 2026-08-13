@@ -29,3 +29,11 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+    groups:
+      # init writes a config file that autobuild and analyze read, so a run
+      # fails outright when the steps are on different versions. Dependabot
+      # tracks each subpath separately, so without this they arrive as
+      # separate pull requests that cannot pass CI on their own.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
