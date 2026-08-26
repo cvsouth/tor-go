@@ -15,7 +15,3 @@ All checks in `.github/workflows/test.yml` must pass before any changes are cons
 - `go test`: all tests pass
 - Coverage: minimum 50% (excluding `cmd/`)
 - LICENSE file exists
-
-## Go Report Card
-
-This project maintains an A+ grade on [Go Report Card](https://goreportcard.com/report/github.com/cvsouth/tor-go). All six checks (gofmt, go_vet, gocyclo, ineffassign, license, misspell) must remain at 100%.
