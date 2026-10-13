@@ -1,8 +1,8 @@
 module github.com/cvsouth/tor-go
 
-go 1.26.7
+go 1.26.9
 
 require (
 	filippo.io/edwards25519 v1.2.0
-	golang.org/x/crypto v0.57.0
+	golang.org/x/crypto v0.58.0
 )
